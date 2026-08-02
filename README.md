@@ -72,6 +72,80 @@ The raw dataset is excluded from version control and is kept locally. Dataset ac
 
 ---
 
+# Customer Behavior Shift Detection
+
+A machine learning project investigating whether **behavioral change features improve the detection of significant customer behavior shifts over time**.
+
+## Project Overview
+
+This project develops a **Machine Learning system for detecting meaningful changes in customer behavior over time**.
+
+Instead of focusing only on whether a customer will churn, the system analyzes changes in customer activity and transaction behavior to identify significant behavioral shifts.
+
+The project compares two approaches:
+
+* **Baseline:** Static customer features
+* **Behavior-aware model:** Static features combined with temporal behavioral change features
+
+The goal is to determine whether incorporating behavioral changes provides a measurable improvement in detecting customer behavior shifts.
+
+---
+
+## Project Objective
+
+The project aims to build and evaluate a practical ML pipeline that can:
+
+1. Represent customer behavior over time.
+2. Define and detect significant behavioral shifts.
+3. Compare static customer information with temporal behavioral features.
+4. Evaluate multiple classification models using appropriate metrics.
+5. Tune and select a final model.
+6. Analyze model errors.
+7. Serve the selected model through a FastAPI REST API.
+8. Maintain reproducible model versions and metadata.
+
+---
+
+## Dataset
+
+**Dataset:** Online Retail II
+
+**Source:** UCI Machine Learning Repository
+
+The dataset contains transaction-level retail data covering the period from **December 2009 to December 2011**.
+
+### Original Features
+
+* `Invoice`
+* `StockCode`
+* `Description`
+* `Quantity`
+* `InvoiceDate`
+* `Price`
+* `Customer ID`
+* `Country`
+
+### Dataset Structure
+
+The original dataset is provided as an Excel workbook containing two sheets:
+
+* `Year 2009-2010`
+* `Year 2010-2011`
+
+The two sheets were programmatically combined into a single transaction-level dataset.
+
+The raw dataset is excluded from version control and is kept locally. Dataset acquisition and preparation instructions will be documented to support reproducibility.
+
+### Dataset Size
+
+* **1,067,371 transactions**
+* **8 original features**
+* **5,942 customers with Customer ID**
+* **77.23% of transactions have a Customer ID**
+* **25 months of transaction data**
+
+---
+
 ## Initial Data Profiling
 
 Initial profiling was performed to assess data quality and determine whether the dataset is suitable for customer-level temporal behavioral analysis.
@@ -281,9 +355,55 @@ customer-behavior-shift-detection/
 
 ---
 
-## Project Status
+### Initial Dataset Profiling
 
-**Current Stage:** Dataset Profiling Completed
+* Total transactions before cleaning: **1,067,371**
+* Transactions with Customer ID: **824,364 (77.23%)**
+* Transactions without Customer ID: **243,007**
+* Unique customers: **5,942**
+* Customers active in multiple months: **4,212**
+* Active customer-month observations before final cleaning: **26,993**
+* Time span: **December 2009 – December 2011**
+* Number of months: **25**
+
+Initial profiling identified missing customer IDs, cancellation transactions, negative quantities, zero-price transactions, negative prices, exact duplicate records, and non-commercial transactions such as manual adjustments and test products.
+
+### Data Cleaning
+
+The transaction dataset was cleaned using a documented, rule-based process.
+
+The following cleaning steps were applied:
+
+1. Removed transactions without `Customer ID` for customer-level behavioral analysis.
+2. Identified and removed cancellation transactions.
+3. Removed transactions with zero prices.
+4. Identified negative-price accounting adjustments and excluded non-valid transaction records.
+5. Identified exact duplicate transactions and removed duplicate copies.
+6. Identified non-commercial transactions, including:
+
+   * `M` — Manual transactions
+   * `ADJUST` / `ADJUST2` — adjustment records
+   * `TEST001` / `TEST002` — test products
+7. Performed final data-quality validation after cleaning.
+
+### Final Cleaned Dataset
+
+After the cleaning process:
+
+* **Final transactions: 778,699**
+* **Customers represented: 5,942**
+* **Missing Customer IDs: 0**
+* **Negative quantities: 0**
+* **Zero quantities: 0**
+* **Negative prices: 0**
+* **Zero prices: 0**
+* **Exact duplicate rows: 0**
+
+The cleaned dataset is stored locally under `data/processed/` and is excluded from version control because of its size.
+
+### Project Status
+
+**Current Stage:** Data Cleaning & Temporal Feature Preparation
 
 ### Completed
 
@@ -295,29 +415,24 @@ customer-behavior-shift-detection/
 * [x] Two dataset sheets identified
 * [x] Sheets programmatically combined
 * [x] Combined dataset created
-* [x] Initial dataset inspection notebook created
-* [x] Missing-value profiling
-* [x] Duplicate analysis
-* [x] Quantity and price validation
+* [x] Initial dataset profiling
+* [x] Data quality assessment
 * [x] Cancellation analysis
-* [x] Customer coverage analysis
-* [x] Temporal activity analysis
-* [x] Monthly customer activity analysis
+* [x] Exact duplicate analysis and removal
+* [x] Zero-price transaction analysis and removal
+* [x] Non-commercial transaction analysis and removal
+* [x] Final cleaned dataset validation
 
-### Next Steps
+### In Progress
 
-* [ ] Define data-cleaning strategy
-* [ ] Implement data cleaning
-* [ ] Define behavioral observation windows
-* [ ] Define the behavior shift target
-* [ ] Perform leakage analysis
-* [ ] Engineer behavioral change features
-* [ ] Build baseline model
-* [ ] Compare candidate models
-* [ ] Tune finalist model
-* [ ] Perform error analysis
-* [ ] Implement model versioning
-* [ ] Build FastAPI API
-* [ ] Add tests
-* [ ] Complete Model Card
-* [ ] Finalize documentation and clone test
+* [ ] Temporal behavior analysis
+* [ ] Customer-month feature engineering
+* [ ] Behavioral shift definition
+* [ ] Leakage analysis
+* [ ] Train / validation / test split
+* [ ] Baseline model
+* [ ] Behavior-aware model
+* [ ] Model comparison and evaluation
+* [ ] Hyperparameter tuning
+* [ ] Error analysis
+* [ ] FastAPI deployment
