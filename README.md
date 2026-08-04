@@ -1,12 +1,12 @@
 # Customer Behavior Shift Detection
 
-A machine learning project investigating whether **behavioral change features improve the detection of significant customer behavior shifts over time**.
+A machine learning study investigating whether behavioral change features improve customer behavior shift detection.
 
 ## Project Overview
 
-This project develops a **Machine Learning system for detecting meaningful changes in customer behavior over time**.
+This project develops a **Machine Learning system for detecting significant changes in customer behavior over time**.
 
-Instead of focusing only on whether a customer will churn, the system analyzes changes in customer activity and transaction behavior to identify significant behavioral shifts.
+Instead of focusing only on whether a customer will churn, the system analyzes changes in customer activity and transaction behavior to identify meaningful behavioral shifts.
 
 The project compares two approaches:
 
@@ -19,16 +19,14 @@ The goal is to determine whether incorporating behavioral changes provides a mea
 
 ## Project Objective
 
-The project aims to build and evaluate a practical ML pipeline that can:
+The main objective is to build and evaluate a practical ML pipeline that can:
 
 1. Represent customer behavior over time.
-2. Define and detect significant behavioral shifts.
+2. Detect significant changes in that behavior.
 3. Compare static customer information with temporal behavioral features.
-4. Evaluate multiple classification models using appropriate metrics.
-5. Tune and select a final model.
-6. Analyze model errors.
-7. Serve the selected model through a FastAPI REST API.
-8. Maintain reproducible model versions and metadata.
+4. Evaluate different classification models using appropriate metrics.
+5. Select and tune a final model.
+6. Serve the selected model through a FastAPI REST API.
 
 ---
 
@@ -38,7 +36,7 @@ The project aims to build and evaluate a practical ML pipeline that can:
 
 **Source:** UCI Machine Learning Repository
 
-The dataset contains transaction-level retail data covering the period from **December 2009 to December 2011**.
+The dataset contains transaction-level retail data covering multiple periods between 2009 and 2011.
 
 ### Original Features
 
@@ -51,139 +49,57 @@ The dataset contains transaction-level retail data covering the period from **De
 * `Customer ID`
 * `Country`
 
-### Dataset Structure
-
-The original dataset is provided as an Excel workbook containing two sheets:
-
-* `Year 2009-2010`
-* `Year 2010-2011`
-
-The two sheets were programmatically combined into a single transaction-level dataset.
-
-The raw dataset is excluded from version control and is kept locally. Dataset acquisition and preparation instructions will be documented to support reproducibility.
-
-### Dataset Size
+### Original Dataset Size
 
 * **1,067,371 transactions**
 * **8 original features**
-* **5,942 customers with Customer ID**
-* **77.23% of transactions have a Customer ID**
-* **25 months of transaction data**
+* **5,942 unique customers with Customer ID**
+* **77.23% Customer ID coverage**
+* Transaction timestamps spanning **December 2009 – December 2011**
 
----
-
-# Customer Behavior Shift Detection
-
-A machine learning project investigating whether **behavioral change features improve the detection of significant customer behavior shifts over time**.
-
-## Project Overview
-
-This project develops a **Machine Learning system for detecting meaningful changes in customer behavior over time**.
-
-Instead of focusing only on whether a customer will churn, the system analyzes changes in customer activity and transaction behavior to identify significant behavioral shifts.
-
-The project compares two approaches:
-
-* **Baseline:** Static customer features
-* **Behavior-aware model:** Static features combined with temporal behavioral change features
-
-The goal is to determine whether incorporating behavioral changes provides a measurable improvement in detecting customer behavior shifts.
-
----
-
-## Project Objective
-
-The project aims to build and evaluate a practical ML pipeline that can:
-
-1. Represent customer behavior over time.
-2. Define and detect significant behavioral shifts.
-3. Compare static customer information with temporal behavioral features.
-4. Evaluate multiple classification models using appropriate metrics.
-5. Tune and select a final model.
-6. Analyze model errors.
-7. Serve the selected model through a FastAPI REST API.
-8. Maintain reproducible model versions and metadata.
-
----
-
-## Dataset
-
-**Dataset:** Online Retail II
-
-**Source:** UCI Machine Learning Repository
-
-The dataset contains transaction-level retail data covering the period from **December 2009 to December 2011**.
-
-### Original Features
-
-* `Invoice`
-* `StockCode`
-* `Description`
-* `Quantity`
-* `InvoiceDate`
-* `Price`
-* `Customer ID`
-* `Country`
-
-### Dataset Structure
-
-The original dataset is provided as an Excel workbook containing two sheets:
-
-* `Year 2009-2010`
-* `Year 2010-2011`
-
-The two sheets were programmatically combined into a single transaction-level dataset.
+The original dataset is provided as an Excel workbook containing two sheets. The sheets were programmatically combined into a single dataset for analysis.
 
 The raw dataset is excluded from version control and is kept locally. Dataset acquisition and preparation instructions will be documented to support reproducibility.
 
-### Dataset Size
-
-* **1,067,371 transactions**
-* **8 original features**
-* **5,942 customers with Customer ID**
-* **77.23% of transactions have a Customer ID**
-* **25 months of transaction data**
-
 ---
 
-## Initial Data Profiling
+## Data Cleaning
 
-Initial profiling was performed to assess data quality and determine whether the dataset is suitable for customer-level temporal behavioral analysis.
+A documented data-cleaning process was applied before temporal analysis and feature engineering.
 
-### Customer Coverage
+### Cleaning Steps
 
-* Unique customers: **5,942**
-* Transactions with Customer ID: **824,364**
-* Transactions without Customer ID: **243,007**
-* Customer ID coverage: **77.23%**
-* Customers with multiple transactions: **5,796**
-* Customers active in multiple months: **4,212**
-* Customers active in multiple years: **2,890**
-* Active customer-month observations: **26,993**
+The following data-quality issues were addressed:
 
-### Temporal Coverage
+* Removed transactions without `Customer ID`.
+* Removed cancellation invoices.
+* Removed zero-price transactions.
+* Removed negative-price transactions.
+* Removed non-commercial transactions such as postage, bank charges, and discounts.
+* Removed exact duplicate transactions.
+* Validated transaction quantities and prices.
+* Validated missing values.
+* Validated transaction dates.
+* Audited suspicious transaction descriptions.
 
-* Start date: **December 1, 2009**
-* End date: **December 9, 2011**
-* Number of unique transaction timestamps: **47,635**
-* Number of calendar months represented: **25**
+### Final Cleaned Dataset
 
-The data contains transactions in every month across the observed period, providing sufficient temporal structure for behavioral analysis.
+After cleaning:
 
-### Data Quality Findings
+* **776,844 transactions**
+* **8 features**
+* **5,942 unique customers**
+* **25 months of transaction history**
+* **No missing values**
+* **No negative quantities**
+* **No zero quantities**
+* **No negative prices**
+* **No zero prices**
+* **No exact duplicate rows**
+* **No suspicious transaction descriptions**
+* **Date range:** December 2009 – December 2011
 
-Initial profiling identified:
-
-* Missing `Customer ID` values
-* Missing product descriptions
-* Exact duplicate records
-* Negative quantities
-* Cancellation transactions
-* Zero-price transactions
-* Negative-price accounting adjustments
-* A partially observed final month
-
-These issues will be addressed through a documented data-cleaning strategy before feature engineering and model development.
+The cleaned dataset is stored locally and excluded from version control.
 
 ---
 
@@ -198,13 +114,11 @@ Data Profiling & Quality Checks
         ↓
 Data Cleaning
         ↓
-Customer-Level Dataset
+Customer-Month Dataset
         ↓
 Temporal Feature Engineering
         ↓
 Behavior Shift Definition
-        ↓
-Leakage Analysis
         ↓
 Train / Validation / Test Split
         ↓
@@ -219,8 +133,6 @@ Error Analysis
 Model Versioning
         ↓
 FastAPI REST API
-        ↓
-Testing & Reproducibility
 ```
 
 ---
@@ -236,21 +148,39 @@ Potential features include:
 * Purchase quantity changes
 * Recency
 * Activity trends
-* Changes in transaction frequency
 * Changes in average transaction value
-* Changes in purchase behavior over defined time windows
+* Changes in product diversity
+* Changes in customer activity over time
 
-The final feature set will be determined after completing the data-cleaning strategy and defining the behavioral shift target.
+The final feature set and observation windows will be determined through temporal analysis and documented based on the dataset characteristics.
 
 ---
 
-## Baseline and Model Comparison
+## Temporal Analysis
 
-The project will establish a **static-feature baseline** and compare it with a **behavior-aware model** that incorporates temporal behavioral change features.
+The cleaned transaction data will be transformed into a **customer-month level dataset**.
 
-At least two classification models will be evaluated using the same leakage-aware data split.
+Each customer-month observation will summarize customer behavior using features such as:
 
-The final model will be selected based on appropriate evaluation metrics and error analysis rather than accuracy alone.
+* Transaction count
+* Total quantity
+* Total spending
+* Average transaction value
+* Number of unique products
+
+These monthly behavioral observations will be used to calculate changes and trends over time.
+
+The temporal analysis will also be used to define a defensible **behavior shift target** while avoiding information leakage.
+
+---
+
+## Behavior Shift Definition
+
+The project focuses on detecting **behavioral change**, rather than directly predicting customer churn.
+
+The behavior shift target will be defined based on measurable changes in customer activity and transaction behavior over time.
+
+The final target definition will be selected after analyzing the temporal behavior distribution and will be documented together with the reasoning behind the chosen threshold or rule.
 
 ---
 
@@ -260,7 +190,7 @@ The project will not rely on **Accuracy alone**.
 
 Evaluation metrics will be selected according to the final target definition and class distribution.
 
-Potential metrics include:
+Candidate metrics include:
 
 * Precision
 * Recall
@@ -268,17 +198,25 @@ Potential metrics include:
 * ROC-AUC
 * PR-AUC
 
-The baseline and candidate models will be evaluated using the same leakage-aware evaluation strategy.
+The baseline and candidate models will be evaluated using the same leakage-aware data split.
 
 ---
 
-## Leakage Prevention
+## Baseline vs Behavior-Aware Model
 
-Because the project focuses on behavioral changes over time, preventing temporal data leakage is a critical requirement.
+The project will compare:
 
-Feature engineering and target construction will ensure that information from the future is not used to predict or define the earlier observation period.
+### Baseline Model
 
-The final train, validation, and test strategy will be documented in the project.
+Uses static or non-temporal customer information.
+
+### Behavior-Aware Model
+
+Uses static customer information combined with temporal behavioral change features.
+
+The main research question is:
+
+> **Do temporal behavioral change features improve the detection of customer behavior shifts compared with a baseline using static customer information?**
 
 ---
 
@@ -291,9 +229,7 @@ The project will maintain at least two model versions:
 
 One model version will be promoted as the **live model**.
 
-Each prediction will include the corresponding `model_version`.
-
-Each model version will have associated metadata describing the model, features, training configuration, and evaluation results.
+Each prediction will include the corresponding model version.
 
 ---
 
@@ -318,7 +254,7 @@ The API will include input validation and return HTTP `422` for invalid input.
 
 The project is designed to be reproducible by another user.
 
-It will include:
+It includes:
 
 * Fixed random seeds
 * Pinned Python dependencies
@@ -327,7 +263,6 @@ It will include:
 * Automated tests
 * Dataset preparation instructions
 * Clone-and-run documentation
-* Reproducible training and prediction workflow
 
 ---
 
@@ -341,6 +276,10 @@ customer-behavior-shift-detection/
 │   └── processed/
 │
 ├── notebooks/
+│   ├── 01_data_profiling.ipynb
+│   ├── 02_data_cleaning.ipynb
+│   └── 03_temporal_analysis.ipynb
+│
 ├── src/
 ├── models/
 ├── outputs/
@@ -355,61 +294,16 @@ customer-behavior-shift-detection/
 
 ---
 
-### Initial Dataset Profiling
+## Project Status
 
-* Total transactions before cleaning: **1,067,371**
-* Transactions with Customer ID: **824,364 (77.23%)**
-* Transactions without Customer ID: **243,007**
-* Unique customers: **5,942**
-* Customers active in multiple months: **4,212**
-* Active customer-month observations before final cleaning: **26,993**
-* Time span: **December 2009 – December 2011**
-* Number of months: **25**
-
-Initial profiling identified missing customer IDs, cancellation transactions, negative quantities, zero-price transactions, negative prices, exact duplicate records, and non-commercial transactions such as manual adjustments and test products.
-
-### Data Cleaning
-
-The transaction dataset was cleaned using a documented, rule-based process.
-
-The following cleaning steps were applied:
-
-1. Removed transactions without `Customer ID` for customer-level behavioral analysis.
-2. Identified and removed cancellation transactions.
-3. Removed transactions with zero prices.
-4. Identified negative-price accounting adjustments and excluded non-valid transaction records.
-5. Identified exact duplicate transactions and removed duplicate copies.
-6. Identified non-commercial transactions, including:
-
-   * `M` — Manual transactions
-   * `ADJUST` / `ADJUST2` — adjustment records
-   * `TEST001` / `TEST002` — test products
-7. Performed final data-quality validation after cleaning.
-
-### Final Cleaned Dataset
-
-After the cleaning process:
-
-* **Final transactions: 778,699**
-* **Customers represented: 5,942**
-* **Missing Customer IDs: 0**
-* **Negative quantities: 0**
-* **Zero quantities: 0**
-* **Negative prices: 0**
-* **Zero prices: 0**
-* **Exact duplicate rows: 0**
-
-The cleaned dataset is stored locally under `data/processed/` and is excluded from version control because of its size.
-
-### Project Status
-
-**Current Stage:** Data Cleaning & Temporal Feature Preparation
+**Current Stage:** Temporal Analysis & Feature Engineering
 
 ### Completed
 
 * [x] GitHub repository setup
 * [x] Python virtual environment setup
 * [x] Project structure created
+* [x] Requirements file created
 * [x] Online Retail II dataset selected
 * [x] Original Excel dataset inspected
 * [x] Two dataset sheets identified
@@ -417,22 +311,35 @@ The cleaned dataset is stored locally under `data/processed/` and is excluded fr
 * [x] Combined dataset created
 * [x] Initial dataset profiling
 * [x] Data quality assessment
-* [x] Cancellation analysis
-* [x] Exact duplicate analysis and removal
-* [x] Zero-price transaction analysis and removal
-* [x] Non-commercial transaction analysis and removal
+* [x] Customer ID filtering
+* [x] Cancellation handling
+* [x] Zero-price and negative-price handling
+* [x] Non-commercial transaction filtering
+* [x] Duplicate validation
+* [x] Suspicious description audit
+* [x] Date validation
 * [x] Final cleaned dataset validation
+* [x] Final cleaned dataset saved locally
 
 ### In Progress
 
 * [ ] Temporal behavior analysis
-* [ ] Customer-month feature engineering
-* [ ] Behavioral shift definition
+* [ ] Customer-month dataset construction
+* [ ] Behavioral feature engineering
+* [ ] Behavior shift definition
 * [ ] Leakage analysis
-* [ ] Train / validation / test split
 * [ ] Baseline model
 * [ ] Behavior-aware model
-* [ ] Model comparison and evaluation
+* [ ] Model comparison
 * [ ] Hyperparameter tuning
 * [ ] Error analysis
+* [ ] Model versioning
 * [ ] FastAPI deployment
+
+---
+
+## Current Next Step
+
+The next stage is to construct the **Customer-Month Dataset** from the final cleaned transaction data and analyze customer behavior over time.
+
+This dataset will serve as the foundation for temporal behavioral features and the final behavior-shift detection target.
