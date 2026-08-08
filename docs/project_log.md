@@ -340,3 +340,27 @@ The cleaning process will define explicit rules for:
 * and preparation of the customer-level temporal dataset.
 
 All cleaning decisions will be documented before model training to maintain a reproducible and leakage-aware pipeline.
+
+## Data Cleaning & Validation
+
+- Combined the two Online Retail II sheets into a single transaction-level dataset.
+- Kept transactions with a valid Customer ID because customer-level behavior analysis requires customer identification.
+- Removed cancellation transactions identified by negative quantities and cancellation invoice codes.
+- Removed zero-price transactions because they do not represent normal positive-value purchases.
+- Removed non-product transactions such as postage, bank charges, and discounts.
+- Removed exact duplicate transaction rows.
+- Added a monthly time feature (`Month`) derived from `InvoiceDate`.
+- Performed final data-quality validation.
+
+### Final Clean Dataset
+
+- Rows: 776,844
+- Columns: 9
+- Missing values: 0
+- Negative quantities: 0
+- Zero quantities: 0
+- Negative prices: 0
+- Zero prices: 0
+- Exact duplicates: 0
+- Date range: December 2009 – December 2011
+- Number of months: 25
