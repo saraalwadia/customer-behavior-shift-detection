@@ -923,3 +923,346 @@ When an error occurs:
 8. Verify the output before continuing.
 
 The goal is not only to make the code run, but to understand why the error happened and why the fix works.
+
+# Debugging Log
+
+## 03 - Temporal Analysis & Feature Engineering
+
+### 1. Cleaned Dataset
+
+After data cleaning and duplicate removal:
+
+* Rows: **776,844**
+* Columns: **8**
+* Missing values: **0**
+* Negative quantities: **0**
+* Zero quantities: **0**
+* Negative prices: **0**
+* Zero prices: **0**
+* Exact duplicate rows: **0**
+
+Date range:
+
+* Minimum date: **2009-12-01 07:45:00**
+* Maximum date: **2011-12-09 12:50:00**
+* Number of months: **25**
+
+A `Month` column was added to support customer-month temporal aggregation.
+
+---
+
+### 2. Transaction-Level Feature
+
+A `TotalPrice` feature was created:
+
+```text
+TotalPrice = Quantity × Price
+```
+
+Validation showed:
+
+* Negative `TotalPrice`: 0
+* Zero `TotalPrice`: 0
+
+The cleaned transaction-level dataset contained:
+
+* Rows: **776,844**
+* Columns: **10** after adding `TotalPrice` and `Month`
+
+---
+
+### 3. Customer-Month Aggregation
+
+Transaction-level data was aggregated into customer-month observations.
+
+The following behavioral features were created:
+
+* `transaction_count`
+* `total_quantity`
+* `total_spending`
+* `average_transaction_value`
+* `unique_products`
+
+Final customer-month dataset:
+
+* Customer-month observations: **25,504**
+* Unique customers: **5,853**
+* Unique months: **25**
+* Duplicate customer-month pairs: **0**
+* Missing values: **0**
+
+---
+
+### 4. Previous-Period Features
+
+Customer-month observations were sorted by customer and month.
+
+Previous behavioral values were created using the customer's previous observed month:
+
+* `previous_transaction_count`
+* `previous_total_quantity`
+* `previous_total_spending`
+* `previous_average_transaction_value`
+* `previous_unique_products`
+
+A temporal gap feature was also created:
+
+* `months_since_previous`
+
+There were:
+
+* Customer-month observations with a previous month: **19,651**
+* Unique customers with a previous month: **4,094**
+
+For consecutive months:
+
+* Consecutive customer-month observations: **9,330**
+* Unique customers with consecutive months: **2,425**
+
+---
+
+### 5. Behavioral Change Features
+
+Absolute changes between the current and previous observations were calculated:
+
+* `change_transaction_count`
+* `change_total_quantity`
+* `change_total_spending`
+* `change_average_transaction_value`
+* `change_unique_products`
+
+Percentage changes were then calculated:
+
+* `pct_change_transaction_count`
+* `pct_change_total_quantity`
+* `pct_change_total_spending`
+* `pct_change_average_transaction_value`
+* `pct_change_unique_products`
+
+Extreme percentage changes were inspected. Large values were observed because percentage change can become very large when the previous value is small.
+
+The 1st and 99th percentiles were inspected to understand the distribution.
+
+---
+
+### 6. Behavioral Shift Threshold
+
+A percentage-change threshold was used to identify large behavioral changes.
+
+The main threshold selected for the core behavioral dimensions was:
+
+```text
+100%
+```
+
+The core behavioral dimensions were:
+
+* `total_quantity`
+* `total_spending`
+* `average_transaction_value`
+* `unique_products`
+
+The number of core dimensions exceeding the threshold was counted using:
+
+```python
+core_large_change_count
+```
+
+The distribution was:
+
+| Number of large changes | Observations | Percentage |
+| ----------------------: | -----------: | ---------: |
+|                       0 |       13,513 |     68.76% |
+|                       1 |        2,901 |     14.76% |
+|                       2 |        1,340 |      6.82% |
+|                       3 |        1,790 |      9.11% |
+|                       4 |          107 |      0.54% |
+
+The target variable `behavior_shift` was then created from the behavioral shift criteria.
+
+Final target distribution:
+
+* No shift (`0`): **16,414 (83.53%)**
+* Shift (`1`): **3,237 (16.47%)**
+
+Overall shift rate:
+
+**16.47%**
+
+---
+
+### 7. Temporal Shift Analysis
+
+Shift rates were examined across months.
+
+Results:
+
+* Minimum monthly shift rate: **7.17%**
+* Maximum monthly shift rate: **23.99%**
+* Average monthly shift rate: **15.99%**
+
+The shift rate varied over time, with higher rates observed in some periods such as September-November 2010 and September-November 2011.
+
+---
+
+### 8. Final Temporal Dataset
+
+The final dataset used for modeling contains:
+
+* Rows: **19,651**
+* Columns: **32**
+
+Saved to:
+
+```text
+../data/processed/behavior_change_dataset.csv
+```
+
+---
+
+### 9. Feature Sets
+
+#### Baseline Features
+
+The baseline model uses historical customer-level information:
+
+```python
+[
+    "historical_active_months",
+    "historical_transactions",
+    "historical_spending"
+]
+```
+
+#### Behavior-Aware Features
+
+The behavior-aware model uses the baseline features plus previous-period behavioral information:
+
+```python
+[
+    "historical_active_months",
+    "historical_transactions",
+    "historical_spending",
+    "previous_transaction_count",
+    "previous_total_quantity",
+    "previous_total_spending",
+    "previous_average_transaction_value",
+    "previous_unique_products",
+    "months_since_previous"
+]
+```
+
+Target:
+
+```text
+behavior_shift
+```
+
+---
+
+### 10. Train / Validation / Test Split
+
+A chronological split was used to avoid temporal leakage.
+
+| Dataset    | Period             |   Rows |
+| ---------- | ------------------ | -----: |
+| Train      | 2010-01 to 2011-05 | 12,832 |
+| Validation | 2011-06 to 2011-08 |  2,553 |
+| Test       | 2011-09 to 2011-12 |  4,266 |
+
+Target distributions:
+
+* Train: **83.74% no shift / 16.26% shift**
+* Validation: **86.09% no shift / 13.91% shift**
+* Test: **81.36% no shift / 18.64% shift**
+
+The target remains imbalanced across all three splits.
+
+---
+
+### 11. Feature Distribution and Skewness
+
+Feature distributions were inspected before modeling.
+
+Strong right-skew was observed, especially in spending, quantity, and transaction-related features.
+
+Baseline skewness included:
+
+* `historical_active_months`: 1.35
+* `historical_transactions`: 6.37
+* `historical_spending`: 13.41
+
+Behavior-aware features showed even stronger skewness in some variables, including:
+
+* `previous_total_quantity`: 30.10
+* `previous_average_transaction_value`: 17.45
+* `previous_total_spending`: 13.09
+* `previous_transaction_count`: 8.19
+
+A skewness threshold of `1.0` was used as a diagnostic to identify highly right-skewed features.
+
+The final log-transformation candidates were explicitly defined as:
+
+#### Baseline
+
+```python
+[
+    "historical_transactions",
+    "historical_spending"
+]
+```
+
+#### Behavior-Aware
+
+```python
+[
+    "historical_transactions",
+    "historical_spending",
+    "previous_transaction_count",
+    "previous_total_quantity",
+    "previous_total_spending",
+    "previous_average_transaction_value",
+    "previous_unique_products"
+]
+```
+
+`historical_active_months` and `months_since_previous` were not included in the final log-transformation lists because they are small count/gap variables with a more constrained range.
+
+---
+
+### 12. Data Leakage Considerations
+
+The following columns were used to construct the target and therefore are not used directly as model features:
+
+* `change_*`
+* `pct_change_*`
+* `behavior_shift_candidate`
+* `core_large_change_count`
+* `core_behavior_shift_candidate`
+
+This prevents the model from directly receiving information that was used to define the target.
+
+Preprocessing and transformations should be fitted on the training data only and then applied to validation and test data.
+
+---
+
+### 13. Current Status
+
+Completed:
+
+* Data cleaning
+* Temporal aggregation
+* Customer-month feature engineering
+* Previous-period features
+* Behavioral change features
+* Behavioral shift target construction
+* Temporal train/validation/test split
+* Baseline feature definition
+* Behavior-aware feature definition
+* Feature distribution analysis
+* Skewness analysis
+* Log-transformation feature selection
+
+Next step:
+
+**Train and evaluate the baseline machine learning model.**
