@@ -2,94 +2,72 @@
 
 ## AI-Based Customer Behavior Shift Detection
 
-This document records important technical issues, debugging steps, methodological decisions, and fixes encountered during the development of the **AI-Based Customer Behavior Shift Detection** project.
+This document records the main technical issues, methodological decisions, debugging findings, and model-development decisions made during the development of the **AI-Based Customer Behavior Shift Detection** project.
 
-The purpose of this log is to make the development process traceable and reproducible.
+The purpose of this log is to keep the project development process **traceable, reproducible, and methodologically defensible**.
 
 ---
 
-# 1. Project Setup
+# 1. Dataset Preparation
 
-## Issue: Raw Dataset and Generated Files
+## Raw Dataset Handling
 
-The raw Online Retail II dataset was large and should not be committed to GitHub.
+The project uses the **Online Retail II** dataset.
+
+The raw dataset was excluded from version control because of its size and because raw data is not required in the GitHub repository for reproducibility.
+
+Generated and processed datasets are stored separately.
 
 ### Decision
 
-The raw dataset was excluded from version control using `.gitignore`.
-
-Generated and processed datasets are stored separately from the raw data.
+The raw dataset was added to `.gitignore`.
 
 ### Lesson
 
-Large raw datasets and sensitive/unnecessary generated files should not be committed to the repository.
+Raw datasets and generated artifacts should be separated from source code and should not be unnecessarily committed to version control.
 
 ---
 
-# 2. Dataset Inspection
+# 2. Dataset Inspection and Cleaning
 
-## Issue: Dataset Stored Across Multiple Excel Sheets
-
-The Online Retail II dataset was provided as an Excel workbook containing multiple sheets.
-
-### Fix
-
-The sheets were inspected and programmatically combined into a single transaction-level dataset.
-
-### Result
-
-The combined raw dataset contained approximately:
-
-* 1,067,371 transactions
-* 8 original features
-
-### Lesson
-
-Before feature engineering, the original dataset structure must be understood and standardized.
-
----
-
-# 3. Dataset Quality Issues
-
-The initial profiling identified several data-quality issues.
-
-### Findings
+The original dataset contained multiple data-quality issues, including:
 
 * Missing Customer IDs
 * Missing descriptions
-* Duplicate rows
+* Duplicate records
 * Negative quantities
 * Negative prices
 * Zero prices
+* Cancellation transactions
+* Non-commercial transactions
 
-### Important statistics
+The dataset was inspected before feature engineering to identify and understand these issues.
 
-* Transactions with Customer ID: 824,364
-* Transactions without Customer ID: 243,007
-* Customer ID coverage: 77.23%
-* Unique customers: 5,942
-* Negative quantities: 22,950
-* Zero quantities: 0
-* Negative prices: 5
-* Zero prices: 6,202
-* Missing descriptions: 4,382
-* Duplicate rows: 34,335
+### Key observations
+
+* Original combined dataset: **1,067,371 rows**
+* Transactions with Customer ID: **824,364**
+* Transactions without Customer ID: **243,007**
+* Unique customers: **5,942**
+* Negative quantities were identified and investigated as part of cancellation handling.
 
 ### Decision
 
-The project focuses on identifiable customers because customer-level temporal behavior cannot be reliably constructed without `Customer ID`.
+Customer-level modeling was restricted to transactions with valid `Customer ID` values because customer behavioral history cannot be reliably constructed without a customer identifier.
+
+Cancellation and invalid/non-commercial transactions were removed according to the project's cleaning rules.
 
 ### Lesson
 
-Data-quality problems must be identified before constructing customer-level behavioral features.
+Data cleaning must be completed before constructing temporal customer features because invalid transactions can directly affect behavioral measurements.
 
 ---
 
-# 4. Customer-Level Temporal Dataset
+# 3. Customer-Month Temporal Dataset
 
-## Issue: Transaction-Level Data Was Not Directly Suitable for Behavioral Change Detection
+## Issue
 
-The original data contains individual transactions, while the project requires behavioral changes over time.
+The original dataset was transaction-level, while the project objective requires detecting changes in customer behavior over time.
 
 ### Fix
 
@@ -101,23 +79,15 @@ Customer × Month
 
 level.
 
-### Monthly behavioral features
+The following monthly behavioral features were created:
 
-The following features were created:
+* `transaction_count`
+* `total_quantity`
+* `total_spending`
+* `average_transaction_value`
+* `unique_products`
 
-* Transaction count
-* Total quantity
-* Total spending
-* Average transaction value
-* Unique products
-* Previous-period values
-* Changes between periods
-* Percentage changes
-* Months since previous activity
-
-### Result
-
-The processed customer-month dataset contained approximately:
+The final temporal dataset used for modeling contained:
 
 ```text
 19,651 rows
@@ -126,71 +96,152 @@ The processed customer-month dataset contained approximately:
 
 ### Lesson
 
-Temporal behavior needs to be represented using repeated observations for each customer rather than isolated transactions.
+Customer behavior is better represented through repeated customer-period observations than isolated transactions.
 
 ---
 
-# 5. Behavior Shift Definition
+# 4. Previous-Period Behavioral Features
 
-## Issue: No Direct Target Variable Existed
+Previous observed customer behavior was calculated using chronological customer histories.
 
-The dataset did not contain a label indicating whether a customer experienced a behavior shift.
+The following features were created:
+
+```text
+previous_transaction_count
+previous_total_quantity
+previous_total_spending
+previous_average_transaction_value
+previous_unique_products
+months_since_previous
+```
+
+These features provide information about the customer's recent behavioral history without directly using future observations.
+
+### Decision
+
+Previous-period features were included in the behavior-aware model to test whether temporal information improves behavior-shift detection.
+
+---
+
+# 5. Behavioral Change Features and Target Construction
+
+## Issue
+
+The original dataset did not contain a target variable indicating whether a customer experienced a behavior shift.
 
 ### Fix
 
-A behavior-shift target was engineered using significant changes across multiple behavioral dimensions.
+Behavioral change features were calculated by comparing current customer behavior with previous observed behavior.
 
-The target was designed to identify meaningful changes rather than simply predicting customer churn.
+Absolute changes included:
 
-### Target
+```text
+change_transaction_count
+change_total_quantity
+change_total_spending
+change_average_transaction_value
+change_unique_products
+```
+
+Percentage changes included:
+
+```text
+pct_change_transaction_count
+pct_change_total_quantity
+pct_change_total_spending
+pct_change_average_transaction_value
+pct_change_unique_products
+```
+
+A core behavioral-change criterion was then used to construct the target:
 
 ```text
 behavior_shift
 ```
 
-### Classes
+with:
 
 ```text
-0 = No Shift
+0 = No Behavior Shift
 1 = Behavior Shift
+```
+
+### Important leakage consideration
+
+Features directly used to construct the target were not used as model inputs.
+
+The following groups were excluded from model features:
+
+```text
+change_*
+pct_change_*
+behavior_shift_candidate
+core_large_change_count
+core_behavior_shift_candidate
 ```
 
 ### Lesson
 
-When a supervised-learning target does not exist, the target definition must be explicit, reproducible, and justified.
+When a supervised-learning target is engineered from behavioral rules, the target-defining variables must not be passed directly to the model.
 
 ---
 
-# 6. Target Imbalance
+# 6. Temporal Train / Validation / Test Split
 
-The target was imbalanced.
+## Issue
+
+Random splitting would allow observations from different time periods to appear across training and evaluation sets, which is inappropriate for this temporal prediction problem.
+
+### Fix
+
+A chronological split was used.
+
+| Dataset    | Period            |   Rows |
+| ---------- | ----------------- | -----: |
+| Train      | 2010-01 → 2011-05 | 12,832 |
+| Validation | 2011-06 → 2011-08 |  2,553 |
+| Test       | 2011-09 → 2011-12 |  4,266 |
+
+### Decision
+
+The Test set was kept separate from model selection and threshold selection.
+
+### Lesson
+
+Temporal problems require time-aware evaluation to reduce the risk of temporal leakage.
+
+---
+
+# 7. Target Imbalance
+
+The target is moderately imbalanced.
 
 ### Training distribution
 
 ```text
-No Shift:        10,745 (83.74%)
-Behavior Shift:   2,087 (16.26%)
+No Shift:         10,745 (83.74%)
+Behavior Shift:    2,087 (16.26%)
 ```
 
 ### Validation distribution
 
 ```text
-No Shift:         2,198 (86.09%)
-Behavior Shift:     355 (13.91%)
+No Shift:          2,198 (86.09%)
+Behavior Shift:      355 (13.91%)
 ```
 
 ### Test distribution
 
 ```text
-No Shift:         3,471 (81.36%)
-Behavior Shift:     795 (18.64%)
+No Shift:          3,471 (81.36%)
+Behavior Shift:      795 (18.64%)
 ```
 
 ### Decision
 
 Accuracy was not used as the primary model-selection metric.
 
-The project uses:
+The main evaluation metrics were:
 
 * Precision
 * Recall
@@ -198,933 +249,15 @@ The project uses:
 * ROC-AUC
 * PR-AUC
 
-F1 and PR-AUC are particularly important because the positive class is relatively small.
+F1-score was used for classification-threshold selection.
 
 ---
 
-# 7. Leakage Analysis
+# 8. Feature Sets
 
-## Risk
+Two feature sets were defined to evaluate whether behavioral information improves detection.
 
-Temporal behavioral prediction can easily suffer from data leakage if future information is used to predict earlier observations.
-
-### Fix
-
-The dataset was split chronologically rather than randomly.
-
-The model only uses information available before or at the prediction point.
-
-### Important principle
-
-Future observations must not influence training or validation predictions.
-
-### Lesson
-
-Temporal ML problems require time-aware splitting and careful feature construction.
-
----
-
-# 8. Train / Validation / Test Split
-
-The final chronological split was:
-
-### Training
-
-```text
-2010-01 → 2011-05
-12,832 rows
-```
-
-### Validation
-
-```text
-2011-06 → 2011-08
-2,553 rows
-```
-
-### Test
-
-```text
-2011-09 → 2011-12
-4,266 rows
-```
-
-### Decision
-
-The Test set was kept untouched during model comparison and threshold selection.
-
-### Lesson
-
-The validation set is used for model selection and threshold tuning.
-
-The test set is reserved for final evaluation.
-
----
-
-# 9. Notebook State and Missing Variables
-
-## Error
-
-Several `NameError` exceptions occurred during notebook development.
-
-Example:
-
-```text
-NameError: name 'X_train_behavior_aware' is not defined
-```
-
-### Cause
-
-The required feature-matrix creation cell had not been executed or the notebook kernel state had been reset.
-
-### Fix
-
-The behavior-aware feature matrices were recreated:
-
-```python
-X_train_behavior_aware = train_df[behavior_aware_features].copy()
-
-X_validation_behavior_aware = validation_df[
-    behavior_aware_features
-].copy()
-
-X_test_behavior_aware = test_df[
-    behavior_aware_features
-].copy()
-```
-
-### Lesson
-
-Jupyter notebooks depend on execution state.
-
-Important preprocessing cells should be organized clearly and rerun after a kernel restart.
-
----
-
-# 10. Missing `ColumnTransformer` Import
-
-## Error
-
-```text
-NameError: name 'ColumnTransformer' is not defined
-```
-
-### Cause
-
-`ColumnTransformer` was used before being imported.
-
-### Fix
-
-```python
-from sklearn.compose import ColumnTransformer
-```
-
-### Lesson
-
-All sklearn components used in preprocessing must be explicitly imported.
-
----
-
-# 11. Missing `LogisticRegression` Import
-
-## Error
-
-```text
-NameError: name 'LogisticRegression' is not defined
-```
-
-### Cause
-
-The Logistic Regression class had not been imported.
-
-### Fix
-
-```python
-from sklearn.linear_model import LogisticRegression
-```
-
-### Lesson
-
-A `NameError` involving an sklearn estimator commonly means the estimator was not imported or the corresponding cell was not executed.
-
----
-
-# 12. Inconsistent Variable Names
-
-## Error
-
-During model comparison, variables such as:
-
-```text
-y_validation_baseline_pred_threshold
-y_validation_proba_baseline
-```
-
-were referenced even though those exact variables had not been created.
-
-### Cause
-
-Prediction variables were created using different naming conventions.
-
-### Fix
-
-Existing variables were inspected and the actual variable names were reused.
-
-### Lesson
-
-Consistent naming conventions are especially important when comparing several models.
-
-Recommended pattern:
-
-```text
-y_validation_<model>_proba
-y_validation_<model>_pred
-y_validation_<model>_pred_threshold
-```
-
----
-
-# 13. Baseline Logistic Regression
-
-## Initial Result
-
-At the default threshold of `0.50`:
-
-```text
-Precision: 0.0000
-Recall:    0.0000
-F1:        0.0000
-ROC-AUC:   0.5763
-PR-AUC:    0.1804
-```
-
-### Issue
-
-The model predicted almost all observations as the negative class at the default threshold.
-
-### Investigation
-
-Validation probability distributions were examined.
-
-The probabilities were generally below `0.50`.
-
-### Decision
-
-Threshold tuning was introduced rather than relying on the default `0.50` threshold.
-
----
-
-# 14. Threshold Selection
-
-## Issue
-
-Using a fixed threshold of `0.50` was not appropriate for this imbalanced classification problem.
-
-### Fix
-
-Multiple thresholds were evaluated on the validation set.
-
-The threshold with the highest F1-score was selected.
-
-### Important principle
-
-The threshold must be selected using the Validation set.
-
-It must not be optimized using the Test set.
-
-### Lesson
-
-The classification threshold is a model-decision parameter and can have a large effect on Precision, Recall, and F1.
-
----
-
-# 15. Behavior-Aware Logistic Regression
-
-The behavior-aware model added previous behavioral information.
-
-### Important features
-
-* Previous transaction count
-* Previous total quantity
-* Previous total spending
-* Previous average transaction value
-* Previous unique products
-* Months since previous activity
-
-### Validation
-
-Best threshold:
-
-```text
-0.30
-```
-
-Results:
-
-```text
-Precision: 0.3935
-Recall:    0.5155
-F1:        0.4463
-ROC-AUC:   0.7794
-PR-AUC:    0.4347
-```
-
-### Conclusion
-
-Adding temporal behavioral information substantially improved performance compared with the static baseline.
-
----
-
-# 16. Test Evaluation of Behavior-Aware Logistic Regression
-
-The selected validation threshold of `0.30` was applied to the untouched Test set.
-
-### Test results
-
-```text
-Precision: 0.4395
-Recall:    0.4201
-F1:        0.4296
-ROC-AUC:   0.7474
-PR-AUC:    0.4494
-```
-
-### Confusion Matrix
-
-```text
-[[3045  426]
- [ 461  334]]
-```
-
-### Lesson
-
-The Test set provides an estimate of how the selected model generalizes to future unseen observations.
-
----
-
-# 17. Error Analysis
-
-A dedicated test-results dataset was created.
-
-It contained:
-
-* Actual target
-* Predicted target
-* Predicted probability
-* Error type
-
-### Error types
-
-```text
-True Positive
-True Negative
-False Positive
-False Negative
-```
-
-### Test distribution
-
-```text
-True Negative: 3045 (71.38%)
-False Negative: 461 (10.81%)
-False Positive: 426 (9.99%)
-True Positive: 334 (7.83%)
-```
-
-### Observations
-
-False Negatives generally showed substantial changes in transaction quantity and spending.
-
-True Positives also showed strong behavioral changes.
-
-False Positives tended to have longer gaps since previous activity.
-
-### Important methodological note
-
-These are observed associations.
-
-They should not automatically be interpreted as causal relationships.
-
----
-
-# 18. Random Forest
-
-Random Forest was introduced as a second candidate model.
-
-### Configuration
-
-```python
-RandomForestClassifier(
-    n_estimators=200,
-    random_state=42,
-    class_weight="balanced",
-    n_jobs=-1
-)
-```
-
-### Validation at threshold 0.50
-
-```text
-Precision: 0.3570
-Recall:    0.4817
-F1:        0.4101
-ROC-AUC:   0.7798
-PR-AUC:    0.4140
-```
-
-### Best threshold
-
-```text
-0.45
-```
-
-### Final validation metrics
-
-```text
-Precision: 0.3390
-Recall:    0.5606
-F1:        0.4225
-ROC-AUC:   0.7798
-PR-AUC:    0.4140
-```
-
-### Conclusion
-
-Random Forest improved recall but did not outperform Behavior-Aware Logistic Regression in F1 or PR-AUC.
-
----
-
-# 19. Gradient Boosting
-
-Gradient Boosting was introduced as the third candidate model.
-
-### Configuration
-
-```python
-GradientBoostingClassifier(
-    n_estimators=200,
-    learning_rate=0.05,
-    max_depth=3,
-    random_state=42
-)
-```
-
-### Validation at threshold 0.50
-
-```text
-Precision: 0.5784
-Recall:    0.3014
-F1:        0.3963
-ROC-AUC:   0.8062
-PR-AUC:    0.4638
-```
-
-### Threshold tuning
-
-The best validation threshold was:
-
-```text
-0.30
-```
-
-### Final validation metrics
-
-```text
-Precision: 0.4138
-Recall:    0.5746
-F1:        0.4811
-ROC-AUC:   0.8062
-PR-AUC:    0.4638
-```
-
-### Confusion Matrix
-
-```text
-[[1909  289]
- [ 151  204]]
-```
-
-### Conclusion
-
-Gradient Boosting became the current finalist because it achieved the strongest overall validation performance.
-
----
-
-# 20. Current Model Comparison
-
-| Model                   | Threshold | Precision | Recall |         F1 |    ROC-AUC |     PR-AUC |
-| ----------------------- | --------: | --------: | -----: | ---------: | ---------: | ---------: |
-| Behavior-Aware Logistic |      0.30 |    0.3935 | 0.5155 |     0.4463 |     0.7794 |     0.4347 |
-| Random Forest           |      0.45 |    0.3390 | 0.5606 |     0.4225 |     0.7798 |     0.4140 |
-| Gradient Boosting       |      0.30 |    0.4138 | 0.5746 | **0.4811** | **0.8062** | **0.4638** |
-
-### Current decision
-
-Gradient Boosting is the finalist.
-
-The current validation threshold is:
-
-```text
-0.30
-```
-
-### Important
-
-This threshold is NOT yet considered permanently final.
-
-It may change after hyperparameter tuning.
-
----
-
-# 21. Threshold 0.30 vs 0.50
-
-For Gradient Boosting:
-
-| Threshold | Precision | Recall |         F1 |
-| --------: | --------: | -----: | ---------: |
-|      0.30 |    0.4138 | 0.5746 | **0.4811** |
-|      0.50 |    0.5784 | 0.3014 |     0.3963 |
-
-### Interpretation
-
-A threshold of `0.50` is more conservative.
-
-It produces higher Precision but misses more actual behavior shifts.
-
-A threshold of `0.30` produces higher Recall and the best F1-score.
-
-### Decision
-
-Because the project aims to detect behavior shifts and F1 is the main threshold-selection criterion, `0.30` is currently preferred.
-
----
-
-# 22. Test Set Protection
-
-The Test set must not be repeatedly used during:
-
-* model selection
-* threshold selection
-* hyperparameter tuning
-* feature selection
-
-### Reason
-
-Repeated use of the Test set can cause indirect overfitting to the test data and produce overly optimistic final results.
-
-### Rule
-
-The Test set should only be used after the final model and threshold are selected using the Training and Validation sets.
-
----
-
-# 23. Current Project Status
-
-Completed:
-
-* Project setup
-* Dataset acquisition
-* Dataset inspection
-* Dataset profiling
-* Data cleaning
-* Customer-level temporal dataset
-* Behavior-shift target definition
-* Temporal feature engineering
-* Leakage-aware splitting
-* Baseline Logistic Regression
-* Behavior-aware Logistic Regression
-* Random Forest
-* Gradient Boosting
-* Threshold selection
-* Model comparison
-* Initial error analysis
-* Behavior-aware model Test evaluation
-
-Current stage:
-
-```text
-Gradient Boosting → Finalist
-```
-
----
-
-# 24. Next Steps
-
-## Step 1 — Hyperparameter Tuning
-
-Tune the Gradient Boosting finalist using the training/validation workflow.
-
-Potential parameters:
-
-* `n_estimators`
-* `learning_rate`
-* `max_depth`
-* `min_samples_split`
-* `min_samples_leaf`
-* `subsample`
-
-The validation set will be used to evaluate the tuned candidate.
-
----
-
-## Step 2 — Final Threshold Selection
-
-After tuning, evaluate thresholds again.
-
-Select the threshold using Validation F1.
-
----
-
-## Step 3 — Final Test Evaluation
-
-Only after the model and threshold are finalized:
-
-* Generate Test probabilities.
-* Apply the selected threshold.
-* Calculate Precision.
-* Calculate Recall.
-* Calculate F1.
-* Calculate ROC-AUC.
-* Calculate PR-AUC.
-* Generate confusion matrix.
-* Generate classification report.
-
----
-
-## Step 4 — Final Error Analysis
-
-Analyze the final model's:
-
-* False Positives
-* False Negatives
-* True Positives
-* Important behavioral patterns
-
----
-
-## Step 5 — Model Interpretation
-
-Analyze feature importance and determine which behavioral features contribute most to detecting shifts.
-
----
-
-## Step 6 — Model Versioning
-
-Save the selected model as a versioned artifact.
-
-Example:
-
-```text
-v1 = baseline model
-v2 = behavior-aware finalist/final model
-```
-
-Store:
-
-* model
-* preprocessing
-* threshold
-* feature list
-* model metadata
-* training information
-
----
-
-## Step 7 — FastAPI
-
-Expose the final model through:
-
-```text
-/health
-/predict
-/metadata
-/versions
-```
-
-The API must validate inputs and return HTTP `422` for invalid inputs.
-
----
-
-## Step 8 — Testing
-
-Add tests for:
-
-* preprocessing
-* model loading
-* prediction
-* threshold application
-* API endpoints
-* invalid inputs
-* health endpoint
-
----
-
-## Step 9 — Documentation
-
-Update:
-
-* README
-* methodology
-* model comparison
-* final results
-* reproducibility instructions
-* API documentation
-* project conclusion
-
----
-
-# 25. General Lessons Learned
-
-### Lesson 1
-
-A high Accuracy score does not necessarily mean a good classifier when the target is imbalanced.
-
-### Lesson 2
-
-Temporal ML problems require strict leakage prevention.
-
-### Lesson 3
-
-The classification threshold is separate from the model itself and can significantly change Precision, Recall, and F1.
-
-### Lesson 4
-
-Threshold selection must be performed on Validation data, not Test data.
-
-### Lesson 5
-
-Comparing multiple models using the same split and metrics makes the comparison more defensible.
-
-### Lesson 6
-
-Error analysis helps explain where the model succeeds and fails.
-
-### Lesson 7
-
-Notebook execution order matters because variables depend on previous cells.
-
-### Lesson 8
-
-The final Test set should remain untouched until the final evaluation.
-
----
-
-# 26. Final Debugging Principle
-
-When an error occurs:
-
-1. Read the full traceback.
-2. Identify the exact failing variable/function/class.
-3. Check whether it was imported.
-4. Check whether the required previous cell was executed.
-5. Check variable names for consistency.
-6. Fix the smallest necessary part.
-7. Re-run the affected cell.
-8. Verify the output before continuing.
-
-The goal is not only to make the code run, but to understand why the error happened and why the fix works.
-
-# Debugging Log
-
-## 03 - Temporal Analysis & Feature Engineering
-
-### 1. Cleaned Dataset
-
-After data cleaning and duplicate removal:
-
-* Rows: **776,844**
-* Columns: **8**
-* Missing values: **0**
-* Negative quantities: **0**
-* Zero quantities: **0**
-* Negative prices: **0**
-* Zero prices: **0**
-* Exact duplicate rows: **0**
-
-Date range:
-
-* Minimum date: **2009-12-01 07:45:00**
-* Maximum date: **2011-12-09 12:50:00**
-* Number of months: **25**
-
-A `Month` column was added to support customer-month temporal aggregation.
-
----
-
-### 2. Transaction-Level Feature
-
-A `TotalPrice` feature was created:
-
-```text
-TotalPrice = Quantity × Price
-```
-
-Validation showed:
-
-* Negative `TotalPrice`: 0
-* Zero `TotalPrice`: 0
-
-The cleaned transaction-level dataset contained:
-
-* Rows: **776,844**
-* Columns: **10** after adding `TotalPrice` and `Month`
-
----
-
-### 3. Customer-Month Aggregation
-
-Transaction-level data was aggregated into customer-month observations.
-
-The following behavioral features were created:
-
-* `transaction_count`
-* `total_quantity`
-* `total_spending`
-* `average_transaction_value`
-* `unique_products`
-
-Final customer-month dataset:
-
-* Customer-month observations: **25,504**
-* Unique customers: **5,853**
-* Unique months: **25**
-* Duplicate customer-month pairs: **0**
-* Missing values: **0**
-
----
-
-### 4. Previous-Period Features
-
-Customer-month observations were sorted by customer and month.
-
-Previous behavioral values were created using the customer's previous observed month:
-
-* `previous_transaction_count`
-* `previous_total_quantity`
-* `previous_total_spending`
-* `previous_average_transaction_value`
-* `previous_unique_products`
-
-A temporal gap feature was also created:
-
-* `months_since_previous`
-
-There were:
-
-* Customer-month observations with a previous month: **19,651**
-* Unique customers with a previous month: **4,094**
-
-For consecutive months:
-
-* Consecutive customer-month observations: **9,330**
-* Unique customers with consecutive months: **2,425**
-
----
-
-### 5. Behavioral Change Features
-
-Absolute changes between the current and previous observations were calculated:
-
-* `change_transaction_count`
-* `change_total_quantity`
-* `change_total_spending`
-* `change_average_transaction_value`
-* `change_unique_products`
-
-Percentage changes were then calculated:
-
-* `pct_change_transaction_count`
-* `pct_change_total_quantity`
-* `pct_change_total_spending`
-* `pct_change_average_transaction_value`
-* `pct_change_unique_products`
-
-Extreme percentage changes were inspected. Large values were observed because percentage change can become very large when the previous value is small.
-
-The 1st and 99th percentiles were inspected to understand the distribution.
-
----
-
-### 6. Behavioral Shift Threshold
-
-A percentage-change threshold was used to identify large behavioral changes.
-
-The main threshold selected for the core behavioral dimensions was:
-
-```text
-100%
-```
-
-The core behavioral dimensions were:
-
-* `total_quantity`
-* `total_spending`
-* `average_transaction_value`
-* `unique_products`
-
-The number of core dimensions exceeding the threshold was counted using:
-
-```python
-core_large_change_count
-```
-
-The distribution was:
-
-| Number of large changes | Observations | Percentage |
-| ----------------------: | -----------: | ---------: |
-|                       0 |       13,513 |     68.76% |
-|                       1 |        2,901 |     14.76% |
-|                       2 |        1,340 |      6.82% |
-|                       3 |        1,790 |      9.11% |
-|                       4 |          107 |      0.54% |
-
-The target variable `behavior_shift` was then created from the behavioral shift criteria.
-
-Final target distribution:
-
-* No shift (`0`): **16,414 (83.53%)**
-* Shift (`1`): **3,237 (16.47%)**
-
-Overall shift rate:
-
-**16.47%**
-
----
-
-### 7. Temporal Shift Analysis
-
-Shift rates were examined across months.
-
-Results:
-
-* Minimum monthly shift rate: **7.17%**
-* Maximum monthly shift rate: **23.99%**
-* Average monthly shift rate: **15.99%**
-
-The shift rate varied over time, with higher rates observed in some periods such as September-November 2010 and September-November 2011.
-
----
-
-### 8. Final Temporal Dataset
-
-The final dataset used for modeling contains:
-
-* Rows: **19,651**
-* Columns: **32**
-
-Saved to:
-
-```text
-../data/processed/behavior_change_dataset.csv
-```
-
----
-
-### 9. Feature Sets
-
-#### Baseline Features
-
-The baseline model uses historical customer-level information:
+## Baseline Features
 
 ```python
 [
@@ -1134,9 +267,9 @@ The baseline model uses historical customer-level information:
 ]
 ```
 
-#### Behavior-Aware Features
+The baseline represents static/historical customer information.
 
-The behavior-aware model uses the baseline features plus previous-period behavioral information:
+## Behavior-Aware Features
 
 ```python
 [
@@ -1152,117 +285,571 @@ The behavior-aware model uses the baseline features plus previous-period behavio
 ]
 ```
 
-Target:
+The behavior-aware model extends the baseline with recent behavioral information.
+
+---
+
+# 9. Baseline Logistic Regression
+
+The baseline Logistic Regression model was trained using the baseline feature set.
+
+At the default classification threshold of `0.50`, the model produced:
 
 ```text
-behavior_shift
+Precision: 0.0000
+Recall:    0.0000
+F1:        0.0000
+ROC-AUC:   0.5763
+PR-AUC:    0.1804
 ```
 
----
+## Issue
 
-### 10. Train / Validation / Test Split
+The model probabilities were generally below `0.50`, causing almost all validation observations to be classified as the negative class.
 
-A chronological split was used to avoid temporal leakage.
+### Fix
 
-| Dataset    | Period             |   Rows |
-| ---------- | ------------------ | -----: |
-| Train      | 2010-01 to 2011-05 | 12,832 |
-| Validation | 2011-06 to 2011-08 |  2,553 |
-| Test       | 2011-09 to 2011-12 |  4,266 |
+Classification thresholds were evaluated on the Validation set.
 
-Target distributions:
+The best threshold by F1-score was:
 
-* Train: **83.74% no shift / 16.26% shift**
-* Validation: **86.09% no shift / 13.91% shift**
-* Test: **81.36% no shift / 18.64% shift**
-
-The target remains imbalanced across all three splits.
-
----
-
-### 11. Feature Distribution and Skewness
-
-Feature distributions were inspected before modeling.
-
-Strong right-skew was observed, especially in spending, quantity, and transaction-related features.
-
-Baseline skewness included:
-
-* `historical_active_months`: 1.35
-* `historical_transactions`: 6.37
-* `historical_spending`: 13.41
-
-Behavior-aware features showed even stronger skewness in some variables, including:
-
-* `previous_total_quantity`: 30.10
-* `previous_average_transaction_value`: 17.45
-* `previous_total_spending`: 13.09
-* `previous_transaction_count`: 8.19
-
-A skewness threshold of `1.0` was used as a diagnostic to identify highly right-skewed features.
-
-The final log-transformation candidates were explicitly defined as:
-
-#### Baseline
-
-```python
-[
-    "historical_transactions",
-    "historical_spending"
-]
+```text
+0.20
 ```
 
-#### Behavior-Aware
+### Validation performance
 
-```python
-[
-    "historical_transactions",
-    "historical_spending",
-    "previous_transaction_count",
-    "previous_total_quantity",
-    "previous_total_spending",
-    "previous_average_transaction_value",
-    "previous_unique_products"
-]
+```text
+Precision: 0.1887
+Recall:    0.4535
+F1:        0.2666
+ROC-AUC:   0.5763
+PR-AUC:    0.1804
 ```
 
-`historical_active_months` and `months_since_previous` were not included in the final log-transformation lists because they are small count/gap variables with a more constrained range.
+### Lesson
+
+The default threshold of `0.50` is not necessarily appropriate for an imbalanced classification problem.
 
 ---
 
-### 12. Data Leakage Considerations
+# 10. Behavior-Aware Logistic Regression
 
-The following columns were used to construct the target and therefore are not used directly as model features:
+The behavior-aware Logistic Regression model was trained using the nine behavior-aware features.
 
-* `change_*`
-* `pct_change_*`
-* `behavior_shift_candidate`
-* `core_large_change_count`
-* `core_behavior_shift_candidate`
+The best validation threshold was:
 
-This prevents the model from directly receiving information that was used to define the target.
+```text
+0.30
+```
 
-Preprocessing and transformations should be fitted on the training data only and then applied to validation and test data.
+### Validation performance
+
+```text
+Precision: 0.3935
+Recall:    0.5155
+F1:        0.4463
+ROC-AUC:   0.7794
+PR-AUC:    0.4347
+```
+
+### Conclusion
+
+Adding recent behavioral information substantially improved the model compared with the static baseline.
 
 ---
 
-### 13. Current Status
+# 11. Random Forest
 
-Completed:
+Random Forest was introduced as a nonlinear candidate model.
 
-* Data cleaning
-* Temporal aggregation
-* Customer-month feature engineering
-* Previous-period features
-* Behavioral change features
-* Behavioral shift target construction
-* Temporal train/validation/test split
-* Baseline feature definition
-* Behavior-aware feature definition
-* Feature distribution analysis
-* Skewness analysis
-* Log-transformation feature selection
+The model was evaluated using the same temporal split and validation-based threshold-selection procedure.
 
-Next step:
+The best validation threshold was:
 
-**Train and evaluate the baseline machine learning model.**
+```text
+0.45
+```
+
+### Validation performance
+
+```text
+Precision: 0.3390
+Recall:    0.5606
+F1:        0.4225
+ROC-AUC:   0.7798
+PR-AUC:    0.4140
+```
+
+### Conclusion
+
+Random Forest achieved higher recall than the behavior-aware Logistic Regression model, but its F1-score and PR-AUC were lower.
+
+Therefore, it was not selected as the final model.
+
+---
+
+# 12. Original XGBoost Model
+
+XGBoost was introduced as an additional nonlinear candidate model.
+
+The model was trained using the behavior-aware feature set.
+
+### Validation threshold
+
+The best threshold was:
+
+```text
+0.30
+```
+
+### Validation performance
+
+```text
+Precision: 0.3985
+Recall:    0.5803
+F1:        0.4725
+ROC-AUC:   0.8022
+PR-AUC:    0.4562
+```
+
+XGBoost achieved the strongest validation performance among the initial candidate models.
+
+### Feature importance
+
+The most important features were:
+
+| Feature                      | Importance |
+| ---------------------------- | ---------: |
+| `previous_total_spending`    |     0.2550 |
+| `previous_unique_products`   |     0.1815 |
+| `previous_total_quantity`    |     0.1399 |
+| `historical_spending`        |     0.0949 |
+| `previous_transaction_count` |     0.0835 |
+
+### Interpretation
+
+Recent customer behavior, particularly previous spending, product diversity, and quantity, contributed strongly to the model's predictions.
+
+These are model associations and should not be interpreted as causal effects.
+
+---
+
+# 13. Model Comparison
+
+The initial validation comparison was:
+
+| Model                              | Threshold | Precision | Recall |         F1 |    ROC-AUC |     PR-AUC |
+| ---------------------------------- | --------: | --------: | -----: | ---------: | ---------: | ---------: |
+| Baseline Logistic Regression       |      0.20 |    0.1887 | 0.4535 |     0.2666 |     0.5763 |     0.1804 |
+| Behavior-Aware Logistic Regression |      0.30 |    0.3935 | 0.5155 |     0.4463 |     0.7794 |     0.4347 |
+| Random Forest                      |      0.45 |    0.3390 | 0.5606 |     0.4225 |     0.7798 |     0.4140 |
+| XGBoost                            |      0.30 |    0.3985 | 0.5803 | **0.4725** | **0.8022** | **0.4562** |
+
+### Decision
+
+XGBoost was selected as the leading candidate because it achieved the strongest validation F1-score, ROC-AUC, and PR-AUC among the initial models.
+
+---
+
+# 14. XGBoost Hyperparameter Tuning
+
+## Objective
+
+Hyperparameter tuning was performed to determine whether the original XGBoost configuration could be improved.
+
+The search was performed using 3-fold cross-validation with F1-score as the optimization metric.
+
+### Search space
+
+```text
+n_estimators: [100, 200, 300]
+max_depth: [3, 5, 7]
+learning_rate: [0.03, 0.05, 0.1]
+subsample: [0.8, 1.0]
+colsample_bytree: [0.8, 1.0]
+```
+
+The search evaluated:
+
+```text
+20 candidate configurations
+60 total cross-validation fits
+```
+
+### Best configuration
+
+```text
+n_estimators = 300
+max_depth = 7
+learning_rate = 0.10
+subsample = 0.8
+colsample_bytree = 1.0
+```
+
+### Cross-validation result
+
+```text
+Best cross-validation F1: 0.3509
+```
+
+The tuned XGBoost model was then evaluated on the Validation set using multiple classification thresholds.
+
+### Tuned validation threshold results
+
+| Threshold |  Precision |     Recall |         F1 |
+| --------: | ---------: | ---------: | ---------: |
+|      0.10 |     0.2477 |     0.7549 |     0.3730 |
+|      0.15 |     0.2825 |     0.6732 |     0.3980 |
+|      0.20 |     0.3138 |     0.6169 |     0.4160 |
+|      0.25 |     0.3379 |     0.5606 |     0.4216 |
+|  **0.30** | **0.3690** | **0.5239** | **0.4331** |
+|      0.35 |     0.3939 |     0.4704 |     0.4288 |
+|      0.40 |     0.4107 |     0.4338 |     0.4219 |
+|      0.45 |     0.4299 |     0.3972 |     0.4129 |
+|      0.50 |     0.4460 |     0.3493 |     0.3918 |
+
+### Comparison with original XGBoost
+
+```text
+Original XGBoost:
+Validation F1 = 0.4725
+Threshold = 0.30
+
+Tuned XGBoost:
+Validation F1 = 0.4331
+Threshold = 0.30
+```
+
+### Decision
+
+Hyperparameter tuning did not improve validation performance.
+
+Therefore:
+
+```text
+Final model: Original XGBoost
+Final threshold: 0.30
+```
+
+The tuned configuration was not adopted.
+
+### Lesson
+
+Hyperparameter tuning is not guaranteed to improve model performance. A tuned model should only replace the original model when it demonstrates better performance on the validation data under the same evaluation procedure.
+
+---
+
+# 15. Final XGBoost Evaluation
+
+After model selection, the untouched Test set was used for final evaluation.
+
+The selected model was:
+
+```text
+Original XGBoost
+```
+
+with:
+
+```text
+Classification threshold = 0.30
+```
+
+### Test performance
+
+```text
+Precision: 0.4681
+Recall:    0.4805
+F1:        0.4742
+ROC-AUC:   0.7746
+PR-AUC:    0.4790
+```
+
+### Test confusion matrix
+
+```text
+[[3037  434]
+ [ 413  382]]
+```
+
+This corresponds to:
+
+```text
+True Negatives: 3037
+False Positives: 434
+False Negatives: 413
+True Positives: 382
+```
+
+### Interpretation
+
+The final model detects a meaningful portion of behavior-shift cases while maintaining substantially better precision than the baseline model.
+
+---
+
+# 16. Final Model vs Baseline
+
+| Model                        |  Precision |     Recall |         F1 |    ROC-AUC |     PR-AUC |
+| ---------------------------- | ---------: | ---------: | ---------: | ---------: | ---------: |
+| Baseline Logistic Regression |     0.1887 |     0.4535 |     0.2666 |     0.5763 |     0.1804 |
+| Final XGBoost                | **0.4681** | **0.4805** | **0.4742** | **0.7746** | **0.4790** |
+
+### Improvement
+
+Compared with the baseline, the final XGBoost model achieved:
+
+* substantially higher Precision
+* higher F1-score
+* substantially higher ROC-AUC
+* substantially higher PR-AUC
+
+This supports the project's main hypothesis that incorporating behavioral information can improve customer behavior-shift detection.
+
+---
+
+# 17. Test Set Protection
+
+The Test set was reserved for final evaluation.
+
+It was not used to:
+
+* select the model
+* select the classification threshold
+* tune hyperparameters
+* compare tuning configurations
+
+The classification threshold was selected using the Validation set and then applied unchanged to the Test set.
+
+### Lesson
+
+Keeping the Test set untouched until final evaluation provides a more reliable estimate of model generalization.
+
+---
+
+# 18. Current Project Status
+
+The core machine-learning pipeline and model-serving components have been completed.
+
+### Completed
+
+* Dataset inspection and cleaning
+* Customer-month temporal aggregation
+* Historical and previous-period behavioral features
+* Behavior-shift target construction
+* Leakage analysis and feature exclusion
+* Chronological train/validation/test split
+* Baseline Logistic Regression
+* Behavior-aware Logistic Regression
+* Random Forest
+* XGBoost
+* Classification-threshold evaluation
+* Model comparison
+* XGBoost hyperparameter tuning
+* Final model selection
+* Final Test evaluation
+* Final model versioning
+* FastAPI model-serving API
+* API request/response schemas
+* Automated API tests
+* Dependency and repository configuration
+
+### Final Model
+
+```text
+Model: XGBoost
+Threshold: 0.30
+Version: v1
+```
+
+### Final Test Performance
+
+```text
+Precision: 0.4681
+Recall:    0.4805
+F1-score:  0.4742
+ROC-AUC:   0.7746
+PR-AUC:    0.4790
+```
+
+The final model was selected based on validation performance and evaluated once on the untouched Test set.
+
+---
+
+# 19. API Validation
+
+The final XGBoost model was exposed through a versioned FastAPI REST API.
+
+### Implemented Endpoints
+
+```text
+GET  /health
+GET  /metadata
+GET  /versions
+POST /predict
+```
+
+The `/predict` endpoint accepts the nine behavior-aware features and returns:
+
+```text
+prediction
+probability
+threshold
+model_version
+```
+
+### API Verification
+
+A real Test-set observation was used to validate the API prediction against the notebook prediction.
+
+The results matched:
+
+```text
+Notebook probability: 0.14841708540916443
+API probability:      0.14841708540916443
+
+Notebook prediction:  0
+API prediction:       0
+```
+
+This confirmed that the deployed model produces the same prediction as the saved model used during evaluation.
+
+### Input Validation
+
+The API was also tested against invalid requests, including:
+
+* Missing required features
+* Invalid data types
+
+FastAPI correctly returned HTTP `422` validation responses.
+
+---
+
+# 20. Automated API Testing
+
+Automated tests were added to verify the main API functionality.
+
+The test suite covers:
+
+```text
+Health endpoint
+Metadata endpoint
+Versions endpoint
+Valid prediction
+Missing prediction feature
+Invalid prediction input type
+```
+
+Test execution result:
+
+```text
+6 passed
+```
+
+This provides automated verification of the main API behavior and input-validation logic.
+
+---
+
+# 21. Final Error Analysis
+
+The final model should be further examined through its prediction errors.
+
+The analysis should focus on:
+
+* False Positives
+* False Negatives
+* True Positives
+* True Negatives
+
+The purpose is to determine whether specific customer behavioral patterns are associated with incorrect predictions and whether the model has systematic weaknesses.
+
+Error analysis should be performed on the Test set without changing the selected model or threshold based on those results.
+
+---
+
+# 22. Model Interpretation
+
+Model interpretation will be used to understand which behavioral features contribute most strongly to the final XGBoost predictions.
+
+The interpretation should focus on the relationship between the model's predictions and features such as:
+
+```text
+previous_total_spending
+previous_unique_products
+previous_total_quantity
+historical_spending
+previous_transaction_count
+```
+
+Feature importance and SHAP-based analysis, if included, should be interpreted as model-level associations rather than causal relationships.
+
+---
+
+# 23. Documentation
+
+The final project documentation should clearly describe:
+
+* Project objective
+* Dataset and preprocessing
+* Feature engineering
+* Target construction
+* Leakage prevention
+* Temporal evaluation strategy
+* Baseline and candidate models
+* Model comparison
+* Threshold selection
+* Hyperparameter tuning
+* Final Test results
+* API usage
+* Testing
+* Reproducibility instructions
+* Project limitations
+* Final conclusion
+
+The documentation should remain consistent with the final implementation and reported evaluation results.
+
+---
+
+# 24. Reproducibility
+
+The project maintains reproducibility through:
+
+* Version-controlled source code
+* A documented feature-generation pipeline
+* Versioned model artifacts
+* Explicit classification threshold
+* Saved model metadata
+* API schemas
+* Automated API tests
+* Dependency specification
+* Git ignore rules for local and generated artifacts
+
+The raw dataset is intentionally excluded from version control.
+
+---
+
+# 25. Final Project Conclusion
+
+The project investigated whether incorporating temporal customer behavior can improve the detection of significant customer behavior shifts compared with a static historical baseline.
+
+The final XGBoost model achieved:
+
+```text
+F1-score:  0.4742
+ROC-AUC:   0.7746
+PR-AUC:    0.4790
+```
+
+compared with the baseline Logistic Regression:
+
+```text
+F1-score:  0.2666
+ROC-AUC:   0.5763
+PR-AUC:    0.1804
+```
+
+The results support the project's main hypothesis: **behavior-aware features provide substantially more useful predictive information for customer behavior-shift detection than the static baseline alone.**
+
+The final model is versioned as `v1`, uses a classification threshold of `0.30`, and is exposed through a tested FastAPI REST API.
+
+The project should be considered complete after finalizing model interpretation, error analysis, and the remaining project documentation.
