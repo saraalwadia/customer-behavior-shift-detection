@@ -324,7 +324,7 @@ The API input is aligned with the saved model rather than relying on arbitrary J
 Problem:
 The project initially referenced multiple model paths, including:
 
-../models/xgboost_behavior_shift_30.pkl
+../models/xgboost/v1/xgboost_behavior_shift_30.pkl
 
 and later:
 
