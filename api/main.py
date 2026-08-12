@@ -11,23 +11,39 @@ app = FastAPI(
 )
 
 
-# Load the versioned model
+# Load the versioned final model once when the API starts
 model = load_model()
+
 
 MODEL_NAME = "XGBoost"
 MODEL_VERSION = "v1"
 THRESHOLD = 0.30
 
+
+# Exact feature order used during model training
 MODEL_FEATURES = [
-    "historical_active_months",
-    "historical_transactions",
-    "historical_spending",
-    "previous_transaction_count",
-    "previous_total_quantity",
-    "previous_total_spending",
-    "previous_average_transaction_value",
-    "previous_unique_products",
-    "months_since_previous",
+    "spend",
+    "totalQuantity",
+    "unique_products",
+    "active_days",
+    "line_items",
+    "avargeOrderValue",
+    "items_per_order",
+    "window_days",
+    "prev_orders",
+    "prev_spend",
+    "prev_totalQuantity",
+    "prev_avargeOrderValue",
+    "prev_unique_products",
+    "prev_active_days",
+    "prev_items_per_order",
+    "orders_change_pct",
+    "spend_change_pct",
+    "totalQuantity_change_pct",
+    "avargeOrderValue_change_pct",
+    "unique_products_change_pct",
+    "active_days_change_pct",
+    "items_per_order_change_pct",
 ]
 
 
@@ -48,6 +64,7 @@ def metadata():
         "model": MODEL_NAME,
         "version": MODEL_VERSION,
         "threshold": THRESHOLD,
+        "n_features": len(MODEL_FEATURES),
         "features": MODEL_FEATURES,
     }
 
@@ -61,20 +78,33 @@ def versions():
     }
 
 
-@app.post("/predict", response_model=PredictionResponse)
+@app.post("/api/v1/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest):
     """Generate a behavior-shift prediction for a customer."""
-    
+
     input_data = [[
-        request.historical_active_months,
-        request.historical_transactions,
-        request.historical_spending,
-        request.previous_transaction_count,
-        request.previous_total_quantity,
-        request.previous_total_spending,
-        request.previous_average_transaction_value,
-        request.previous_unique_products,
-        request.months_since_previous,
+        request.spend,
+        request.totalQuantity,
+        request.unique_products,
+        request.active_days,
+        request.line_items,
+        request.avargeOrderValue,
+        request.items_per_order,
+        request.window_days,
+        request.prev_orders,
+        request.prev_spend,
+        request.prev_totalQuantity,
+        request.prev_avargeOrderValue,
+        request.prev_unique_products,
+        request.prev_active_days,
+        request.prev_items_per_order,
+        request.orders_change_pct,
+        request.spend_change_pct,
+        request.totalQuantity_change_pct,
+        request.avargeOrderValue_change_pct,
+        request.unique_products_change_pct,
+        request.active_days_change_pct,
+        request.items_per_order_change_pct,
     ]]
 
     probability = float(model.predict_proba(input_data)[0][1])
