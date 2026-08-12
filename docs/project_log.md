@@ -1,1089 +1,781 @@
-# Project Log
+# Project Log — Customer Behavior Shift Detection
 
-## Project: AI-Based Customer Behavior Shift Detection
+## Project Overview
 
----
+Project:
+AI-Based Customer Behavior Shift Detection
 
-## 1. Data Profiling
+Purpose:
+Build a machine learning system that detects significant changes in customer purchasing behavior over time.
 
-### Objective
+Dataset:
+Online Retail II
 
-The objective of this stage was to understand the structure, quality, completeness, temporal coverage, customer coverage, and potential anomalies in the Online Retail II dataset before performing data cleaning and feature engineering.
+Main objective:
+Compare customer behavior information over time and build a model capable of detecting BehaviorShift while avoiding future-data leakage.
 
----
+Final ML model:
+XGBoost
 
-### Dataset Source
+Final API:
+FastAPI
 
-The project uses the **Online Retail II** dataset from the UCI Machine Learning Repository.
+Model version:
+v1
 
-The original workbook contains two sheets:
+Final model artifact:
+models/xgboost/v1/model.joblib
 
-* `Year 2009-2010`
-* `Year 2010-2011`
 
-Both sheets contain the same 8 original features:
+# 1. Project Initialization
 
-* Invoice
-* StockCode
-* Description
-* Quantity
-* InvoiceDate
-* Price
-* Customer ID
-* Country
+The project was created as part of the PSSAR Advanced Technical Training capstone.
 
----
+The initial objective was to build a defensible machine learning model behind a versioned REST API.
 
-### Dataset Structure
+The project requirements included:
 
-The two sheets were loaded and combined programmatically.
+- Data profiling
+- Data cleaning
+- Feature engineering
+- Target/label creation
+- Baseline modeling
+- Comparison of multiple models
+- Evaluation using appropriate classification metrics
+- Leakage detection
+- Hyperparameter tuning
+- Model serialization
+- REST API development
+- API testing
+- Documentation
 
-#### Year 2009-2010
 
-* Rows: 525,461
-* Columns: 8
+# 2. Dataset Selection
 
-#### Year 2010-2011
+The Online Retail II dataset was selected.
 
-* Rows: 541,910
-* Columns: 8
+The original combined dataset contained:
 
-#### Combined Dataset
+Rows:
+1,067,371
 
-* Rows: 1,067,371
-* Columns: 8
+Features:
+8
 
-The combined raw dataset was saved as:
+The dataset contains online retail transactions including:
 
-`data/raw/online_retail_II.csv`
+- Invoice
+- StockCode
+- Description
+- Quantity
+- InvoiceDate
+- Price
+- Customer ID
+- Country
 
-The raw dataset is kept separate from processed data.
+The two available periods/sheets were combined into a single dataset.
 
----
 
-## 2. Missing Values
+# 3. Initial Data Profiling
 
-Missing values were identified in two columns:
+Important initial findings included:
 
-| Column      | Missing Rows | Missing Rate |
-| ----------- | -----------: | -----------: |
-| Customer ID |      243,007 |       22.77% |
-| Description |        4,382 |        0.41% |
+Transactions:
+1,067,371
 
-Customer ID is important for this project because the target is based on changes in individual customer behavior over time.
+Transactions with Customer ID:
+824,364
 
-Transactions without Customer ID cannot be assigned to a specific customer and therefore cannot contribute to customer-level behavioral features.
+Transactions without Customer ID:
+243,007
 
-Missing Description values are less critical because Description is not a primary feature used by the final customer-level modeling pipeline.
+Customer ID coverage:
+77.23%
 
----
+Unique customers:
+5,942
 
-## 3. Duplicate Records
-
-The combined dataset contains:
-
-* Total duplicate rows: 34,335
-
-Duplicates were also examined separately for each original sheet:
-
-* Year 2009-2010: 6,865 duplicate rows
-* Year 2010-2011: 5,268 duplicate rows
-
-Rows duplicated across the two sheets:
-
-* 23,221 rows
-
-Unique rows duplicated across sheets:
-
-* 22,202
-
-These results indicate that duplication exists both within individual sheets and across the combined dataset and must be considered during data cleaning.
-
-The raw dataset will not be modified directly. Any duplicate removal will be performed on a processed dataset and documented.
-
----
-
-## 4. Customer Coverage
-
-The combined dataset contains:
-
-* Total transaction rows: 1,067,371
-* Transactions with Customer ID: 824,364
-* Transactions without Customer ID: 243,007
-* Customer ID coverage: 77.23%
-
-There are:
-
-* 5,942 unique customers with Customer ID
-* 5,796 customers with multiple transactions
-* 2,890 customers active across multiple years
-
-This confirms that the dataset contains sufficient repeated customer activity for temporal behavioral analysis.
-
----
-
-## 5. Customer Transaction Distribution
-
-The number of transactions per customer was examined.
-
-Results:
-
-* Mean: 138.74 transactions
-* Median: 53 transactions
-* Maximum: 13,097 transactions
-* Minimum: 1 transaction
-
-The distribution is highly uneven, with some customers having substantially more transactions than others.
-
-This is important because customer activity is not uniformly distributed.
-
----
-
-## 6. Customer Monthly Activity
-
-The dataset contains:
-
-* Unique customers: 5,942
-* Unique months: 25
-* Active customer-month observations: 26,993
-
-Not every customer is active in every month.
-
-Therefore, the number of observed customer-month combinations is much smaller than the theoretical:
-
-`5,942 × 25 = 148,550`
-
-This supports the decision to construct a customer-month behavioral dataset rather than treating individual transaction rows as the main modeling observations.
-
----
-
-## 7. Transaction Quantity Analysis
+Customers active in multiple years:
+2,890
 
 Negative quantities:
-
-* 22,950 rows
+22,950
 
 Zero quantities:
+0
 
-* 0 rows
+Negative prices:
+0 after cleaning
 
-Negative quantities were investigated to determine whether they represented cancellations or other business events.
-
-Among negative-quantity transactions:
-
-* 19,493 were associated with cancellation-style invoice numbers beginning with `C`.
-* 3,457 negative-quantity rows were not associated with cancellation invoice numbers.
-
-The non-cancellation negative-quantity records were inspected and included descriptions such as:
-
-* `short`
-* `lost`
-* `damages`
-* `sold as gold`
-* `invcd as ...`
-
-These records appear to represent operational adjustments, damaged/lost goods, or other non-standard transactions.
-
-This finding will be considered during the data-cleaning stage.
-
----
-
-## 8. Cancellation Analysis
-
-Cancellation records were explicitly investigated.
-
-Results:
-
-* Cancellation rows: 19,494
-* Cancellation invoices: 8,292
-* Cancellation invoices with positive quantity: 1
-
-The large majority of negative-quantity cancellation records therefore follow the expected pattern of representing returned/cancelled quantities.
-
----
-
-## 9. Price Analysis
-
-Negative-price rows:
-
-* 5
-
-All five negative-price records were manually inspected.
-
-They had:
-
-* Description: `Adjust bad debt`
-* Quantity: 1
-* Customer ID: missing
-* Negative prices
-
-These records represent financial adjustments rather than normal customer purchases.
-
-Because they do not represent identifiable customer purchasing behavior and have no Customer ID, they should not contribute to customer-level behavioral modeling.
-
-Zero-price rows:
-
-* 6,202
-
-The zero-price records were also investigated.
-
-Among them:
-
-* 6,131 had missing Customer ID
-
-The quantity distribution of zero-price rows was also examined and showed that these records include both positive and negative quantities.
-
-Zero-price records will therefore be handled carefully during data cleaning rather than automatically assuming that every zero-price row is a valid purchase.
-
----
-
-## 10. Description Analysis
+Zero prices:
+6,202
 
 Missing descriptions:
+4,382
 
-* 4,382 rows
+Date range:
+2009-12-01 to 2011-12-09
 
-Several frequent non-product descriptions were identified, including:
 
-* `check`
-* `?`
-* `damages`
-* `damaged`
-* `found`
-* `missing`
-* `adjustment`
-* `dotcom`
-* `amazon`
-* `smashed`
+# 4. Data Cleaning
 
-These values suggest that some records contain operational notes or adjustments rather than standard product descriptions.
+The cleaning process focused on creating a reliable customer-level behavioral dataset.
 
-Since Description is not a primary modeling feature, missing descriptions alone are not considered sufficient reason to remove a transaction.
+Cancellation transactions were identified using invoices beginning with "C".
 
----
+Cancellation rows were removed.
 
-## 11. Temporal Coverage
+Non-commercial transactions were also removed.
 
-The dataset spans:
+Rows with invalid zero prices were removed.
 
-* Minimum date: 2009-12-01 07:45:00
-* Maximum date: 2011-12-09 12:50:00
+Transactions without Customer IDs were excluded because customer-level behavior modeling requires a known customer identifier.
 
-There are:
+The cleaned transaction-level dataset contained approximately:
 
-* 47,635 unique `InvoiceDate` timestamps
+802,904 rows
 
-The `InvoiceDate` column contains both date and time, so the number of unique timestamps is not equivalent to the number of unique calendar days.
+After cleaning:
 
-The temporal coverage is sufficient for constructing monthly customer behavior features.
+Missing Customer IDs:
+0
 
----
+Negative quantities:
+0
 
-## 12. Monthly Transaction Activity
+Zero quantities:
+0
 
-Transaction volume varies considerably across months.
+Negative prices:
+0
 
-Higher transaction volumes were observed around October-November, while some early-year months had lower activity.
+Zero prices:
+0
 
-December 2011 contains fewer transactions because the dataset ends on December 9, 2011, making it a partial month.
 
-This is important when interpreting temporal patterns.
+# 5. Behavioral Window Construction
 
----
+Customer transactions were transformed into temporal behavioral windows.
 
-## 13. Monthly Customer ID Missingness
+A 30-day behavioral window was used.
 
-The missing Customer ID rate varies across months.
+For each customer/window, behavioral information was calculated.
+
+Main behavioral features included:
+
+- orders
+- spend
+- totalQuantity
+- unique_products
+- active_days
+- line_items
+- avargeOrderValue
+- items_per_order
+- window_days
+
+Historical/previous-window information was also calculated.
 
 Examples:
 
-* 2010-10: approximately 14.45%
-* 2010-12: approximately 35.92%
-* 2011-01: approximately 37.66%
-* 2011-07: approximately 30.41%
-* 2011-12: approximately 30.81%
+- prev_orders
+- prev_spend
+- prev_totalQuantity
+- prev_avargeOrderValue
+- prev_unique_products
+- prev_active_days
+- prev_items_per_order
 
-This confirms that missing Customer ID values are not distributed uniformly over time.
+Behavior-change features were calculated to capture changes between behavioral periods.
 
-Because Customer ID is required for customer-level behavioral analysis, transactions without Customer ID cannot be used to construct identifiable customer behavior histories.
+Examples:
 
----
+- orders_change_pct
+- spend_change_pct
+- totalQuantity_change_pct
+- avargeOrderValue_change_pct
+- unique_products_change_pct
+- active_days_change_pct
+- items_per_order_change_pct
 
-## 14. Profiling Conclusions
 
-The profiling stage confirmed that:
+# 6. Target Definition
 
-1. The dataset contains sufficient temporal information for behavior-shift analysis.
-2. Customer ID is available for 77.23% of transaction rows.
-3. There are 5,942 identifiable customers and 26,993 active customer-month observations.
-4. Duplicate records exist and require explicit handling.
-5. Negative quantities are mostly associated with cancellations, but some represent other operational events.
-6. Negative-price records were identified as bad-debt adjustments rather than normal purchases.
-7. Zero-price transactions require additional investigation before deciding how to handle them.
-8. Customer activity varies substantially over time.
-9. December 2011 is a partial month and must be considered when interpreting temporal patterns.
-10. The raw dataset should remain unchanged, while cleaning and filtering should be performed on processed data.
+The target variable was:
 
----
+BehaviorShift
 
-## 15. Next Step
+The target represents whether a significant change in customer behavior occurred in the future.
 
-The next stage is **Data Cleaning**.
+Future behavior variables were used to construct the label, but they were not allowed to become model features.
 
-The cleaning process will define explicit rules for:
+This distinction was important to prevent target leakage.
 
-* customer identification,
-* duplicate handling,
-* cancellations and negative quantities,
-* zero-price transactions,
-* invalid or non-customer transactions,
-* and preparation of the customer-level temporal dataset.
 
-All cleaning decisions will be documented before model training to maintain a reproducible and leakage-aware pipeline.
+# 7. Final Labeled Dataset
 
-## Data Cleaning & Validation
+The final labeled modeling dataset contained:
 
-- Combined the two Online Retail II sheets into a single transaction-level dataset.
-- Kept transactions with a valid Customer ID because customer-level behavior analysis requires customer identification.
-- Removed cancellation transactions identified by negative quantities and cancellation invoice codes.
-- Removed zero-price transactions because they do not represent normal positive-value purchases.
-- Removed non-product transactions such as postage, bank charges, and discounts.
-- Removed exact duplicate transaction rows.
-- Added a monthly time feature (`Month`) derived from `InvoiceDate`.
-- Performed final data-quality validation.
-
-### Final Clean Dataset
-
-- Rows: 776,844
-- Columns: 9
-- Missing values: 0
-- Negative quantities: 0
-- Zero quantities: 0
-- Negative prices: 0
-- Zero prices: 0
-- Exact duplicates: 0
-- Date range: December 2009 – December 2011
-- Number of months: 25
-
-# Debugging Log
-
-## 03 - Temporal Analysis & Feature Engineering
-
-### 1. Cleaned Dataset
-
-After data cleaning and duplicate removal:
-
-* Rows: **776,844**
-* Columns: **8**
-* Missing values: **0**
-* Negative quantities: **0**
-* Zero quantities: **0**
-* Negative prices: **0**
-* Zero prices: **0**
-* Exact duplicate rows: **0**
-
-Date range:
-
-* Minimum date: **2009-12-01 07:45:00**
-* Maximum date: **2011-12-09 12:50:00**
-* Number of months: **25**
-
-A `Month` column was added to support customer-month temporal aggregation.
-
----
-
-### 2. Transaction-Level Feature
-
-A `TotalPrice` feature was created:
-
-```text
-TotalPrice = Quantity × Price
-```
-
-Validation showed:
-
-* Negative `TotalPrice`: 0
-* Zero `TotalPrice`: 0
-
-The cleaned transaction-level dataset contained:
-
-* Rows: **776,844**
-* Columns: **10** after adding `TotalPrice` and `Month`
-
----
-
-### 3. Customer-Month Aggregation
-
-Transaction-level data was aggregated into customer-month observations.
-
-The following behavioral features were created:
-
-* `transaction_count`
-* `total_quantity`
-* `total_spending`
-* `average_transaction_value`
-* `unique_products`
-
-Final customer-month dataset:
-
-* Customer-month observations: **25,504**
-* Unique customers: **5,853**
-* Unique months: **25**
-* Duplicate customer-month pairs: **0**
-* Missing values: **0**
-
----
-
-### 4. Previous-Period Features
-
-Customer-month observations were sorted by customer and month.
-
-Previous behavioral values were created using the customer's previous observed month:
-
-* `previous_transaction_count`
-* `previous_total_quantity`
-* `previous_total_spending`
-* `previous_average_transaction_value`
-* `previous_unique_products`
-
-A temporal gap feature was also created:
-
-* `months_since_previous`
-
-There were:
-
-* Customer-month observations with a previous month: **19,651**
-* Unique customers with a previous month: **4,094**
-
-For consecutive months:
-
-* Consecutive customer-month observations: **9,330**
-* Unique customers with consecutive months: **2,425**
-
----
-
-### 5. Behavioral Change Features
-
-Absolute changes between the current and previous observations were calculated:
-
-* `change_transaction_count`
-* `change_total_quantity`
-* `change_total_spending`
-* `change_average_transaction_value`
-* `change_unique_products`
-
-Percentage changes were then calculated:
-
-* `pct_change_transaction_count`
-* `pct_change_total_quantity`
-* `pct_change_total_spending`
-* `pct_change_average_transaction_value`
-* `pct_change_unique_products`
-
-Extreme percentage changes were inspected. Large values were observed because percentage change can become very large when the previous value is small.
-
-The 1st and 99th percentiles were inspected to understand the distribution.
-
----
-
-### 6. Behavioral Shift Threshold
-
-A percentage-change threshold was used to identify large behavioral changes.
-
-The main threshold selected for the core behavioral dimensions was:
-
-```text
-100%
-```
-
-The core behavioral dimensions were:
-
-* `total_quantity`
-* `total_spending`
-* `average_transaction_value`
-* `unique_products`
-
-The number of core dimensions exceeding the threshold was counted using:
-
-```python
-core_large_change_count
-```
-
-The distribution was:
-
-| Number of large changes | Observations | Percentage |
-| ----------------------: | -----------: | ---------: |
-|                       0 |       13,513 |     68.76% |
-|                       1 |        2,901 |     14.76% |
-|                       2 |        1,340 |      6.82% |
-|                       3 |        1,790 |      9.11% |
-|                       4 |          107 |      0.54% |
-
-The target variable `behavior_shift` was then created from the behavioral shift criteria.
-
-Final target distribution:
-
-* No shift (`0`): **16,414 (83.53%)**
-* Shift (`1`): **3,237 (16.47%)**
-
-Overall shift rate:
-
-**16.47%**
-
----
-
-### 7. Temporal Shift Analysis
-
-Shift rates were examined across months.
-
-Results:
-
-* Minimum monthly shift rate: **7.17%**
-* Maximum monthly shift rate: **23.99%**
-* Average monthly shift rate: **15.99%**
-
-The shift rate varied over time, with higher rates observed in some periods such as September-November 2010 and September-November 2011.
-
----
-
-### 8. Final Temporal Dataset
-
-The final dataset used for modeling contains:
-
-* Rows: **19,651**
-* Columns: **32**
-
-Saved to:
-
-```text
-../data/processed/behavior_change_dataset.csv
-```
-
----
-
-### 9. Feature Sets
-
-#### Baseline Features
-
-The baseline model uses historical customer-level information:
-
-```python
-[
-    "historical_active_months",
-    "historical_transactions",
-    "historical_spending"
-]
-```
-
-#### Behavior-Aware Features
-
-The behavior-aware model uses the baseline features plus previous-period behavioral information:
-
-```python
-[
-    "historical_active_months",
-    "historical_transactions",
-    "historical_spending",
-    "previous_transaction_count",
-    "previous_total_quantity",
-    "previous_total_spending",
-    "previous_average_transaction_value",
-    "previous_unique_products",
-    "months_since_previous"
-]
-```
-
-Target:
-
-```text
-behavior_shift
-```
-
----
-
-### 10. Train / Validation / Test Split
-
-A chronological split was used to avoid temporal leakage.
-
-| Dataset    | Period             |   Rows |
-| ---------- | ------------------ | -----: |
-| Train      | 2010-01 to 2011-05 | 12,832 |
-| Validation | 2011-06 to 2011-08 |  2,553 |
-| Test       | 2011-09 to 2011-12 |  4,266 |
-
-Target distributions:
-
-* Train: **83.74% no shift / 16.26% shift**
-* Validation: **86.09% no shift / 13.91% shift**
-* Test: **81.36% no shift / 18.64% shift**
-
-The target remains imbalanced across all three splits.
-
----
-
-### 11. Feature Distribution and Skewness
-
-Feature distributions were inspected before modeling.
-
-Strong right-skew was observed, especially in spending, quantity, and transaction-related features.
-
-Baseline skewness included:
-
-* `historical_active_months`: 1.35
-* `historical_transactions`: 6.37
-* `historical_spending`: 13.41
-
-Behavior-aware features showed even stronger skewness in some variables, including:
-
-* `previous_total_quantity`: 30.10
-* `previous_average_transaction_value`: 17.45
-* `previous_total_spending`: 13.09
-* `previous_transaction_count`: 8.19
-
-A skewness threshold of `1.0` was used as a diagnostic to identify highly right-skewed features.
-
-The final log-transformation candidates were explicitly defined as:
-
-#### Baseline
-
-```python
-[
-    "historical_transactions",
-    "historical_spending"
-]
-```
-
-#### Behavior-Aware
-
-```python
-[
-    "historical_transactions",
-    "historical_spending",
-    "previous_transaction_count",
-    "previous_total_quantity",
-    "previous_total_spending",
-    "previous_average_transaction_value",
-    "previous_unique_products"
-]
-```
-
-`historical_active_months` and `months_since_previous` were not included in the final log-transformation lists because they are small count/gap variables with a more constrained range.
-
----
-
-### 12. Data Leakage Considerations
-
-The following columns were used to construct the target and therefore are not used directly as model features:
-
-* `change_*`
-* `pct_change_*`
-* `behavior_shift_candidate`
-* `core_large_change_count`
-* `core_behavior_shift_candidate`
-
-This prevents the model from directly receiving information that was used to define the target.
-
-Preprocessing and transformations should be fitted on the training data only and then applied to validation and test data.
-
----
-
-### 13. Current Status
-
-Completed:
-
-* Data cleaning
-* Temporal aggregation
-* Customer-month feature engineering
-* Previous-period features
-* Behavioral change features
-* Behavioral shift target construction
-* Temporal train/validation/test split
-* Baseline feature definition
-* Behavior-aware feature definition
-* Feature distribution analysis
-* Skewness analysis
-* Log-transformation feature selection
-
-Next step:
-
-Train and evaluate the baseline machine learning model.
-
-# Project Notes
-
-## 03 - Temporal Analysis & Feature Engineering
-
-### What are we trying to do?
-
-Our project is not directly predicting customer churn.
-
-The goal is to detect whether a customer's behavior has changed significantly over time.
-
-Instead of looking at one transaction, we convert the transaction-level dataset into **customer-month observations**.
-
----
-
-## 1. Customer-Month
-
-Each row represents:
-
-> One customer during one active month.
-
-For each customer-month, we calculate:
-
-### `transaction_count`
-
-How many transactions the customer made during that month.
-
-### `total_quantity`
-
-The total number of products/items purchased during that month.
-
-### `total_spending`
-
-The total amount spent during that month.
-
-### `average_transaction_value`
-
-The average value of the customer's transactions.
-
-### `unique_products`
-
-The number of different products purchased.
-
-These features describe the customer's behavior during a specific month.
-
----
-
-## 2. Why Do We Need Previous Behavior?
-
-A single month's behavior does not tell us whether the customer changed.
-
-For example:
-
-```text
-January spending = $500
-February spending = $200
-```
-
-The important information is not just `$200`.
-
-The important information is:
-
-> Spending decreased compared with the previous period.
-
-Therefore, we create previous-period features.
-
----
-
-## 3. Previous Behavioral Features
-
-For every customer-month where a previous observation exists, we retrieve the customer's previous behavioral values.
+Rows:
+15,582
 
 Features:
+34 columns before modeling exclusions.
 
-* `previous_transaction_count`
-* `previous_total_quantity`
-* `previous_total_spending`
-* `previous_average_transaction_value`
-* `previous_unique_products`
+Target distribution:
 
-We also calculate:
+BehaviorShift = 0:
+64.74%
 
-### `months_since_previous`
+BehaviorShift = 1:
+35.26%
 
-This tells us how many months passed between the current observation and the previous active observation.
+The dataset therefore had moderate class imbalance.
 
-Example:
 
-```text
-2010-03 → 2010-06
-months_since_previous = 3
-```
+# 8. Leakage Control
 
----
+The following future-looking variables were removed before model training:
 
-## 4. Change Features
+- next_orders
+- next_spend
+- future_orders_change
+- future_spend_change
 
-We calculate the difference between the current and previous behavior.
+Identifier/date columns were also removed:
 
-Example:
+- CustomerID
+- window_id
+- window_start
+- window_end
+- first_purchase
+- last_purchase
 
-```text
-Current spending = 200
-Previous spending = 500
+The final model therefore used information available at the prediction point.
 
-Change = 200 - 500
-      = -300
-```
 
-A negative value means the behavior decreased.
+# 9. Initial XGBoost Model
 
-A positive value means the behavior increased.
+An initial XGBoost classifier was trained.
 
----
+Configuration:
 
-## 5. Percentage Change
+n_estimators = 300
+max_depth = 6
+learning_rate = 0.1
+scale_pos_weight = 1.8362842032651183
+eval_metric = logloss
+random_state = 42
+n_jobs = -1
 
-Absolute change is not always enough.
+Initial results:
 
-For example:
+Accuracy:
+0.73
 
-```text
-Customer A:
-500 → 400
-Change = -100
+ROC-AUC:
+0.791834
 
-Customer B:
-100 → 0
-Change = -100
-```
+PR-AUC:
+0.660608
 
-Both have the same absolute change, but the relative behavioral change is very different.
+Positive-class precision:
+0.60
 
-Therefore we also calculate percentage changes.
+Positive-class recall:
+0.70
 
-Conceptually:
+Positive-class F1:
+0.65
 
-```text
-Percentage Change =
-(Current - Previous) / Previous × 100
-```
 
-This allows us to measure behavioral change relative to the customer's previous level.
+# 10. Feature Importance Investigation
 
----
+The first model showed that:
 
-## 6. What is the Threshold?
+orders
 
-The threshold is simply the boundary we use to decide:
+was by far the most important feature.
 
-> Is this change large enough to be considered a significant behavioral change?
+Feature importance:
 
-For the core behavioral dimensions, we used:
+orders:
+0.659998
 
-```text
-Threshold = 100%
-```
+This raised an important modeling question because the project's goal is to detect behavioral changes rather than simply rely on the absolute number of orders.
 
-The core dimensions are:
+A feature-ablation experiment was therefore performed.
 
-* `total_quantity`
-* `total_spending`
-* `average_transaction_value`
-* `unique_products`
 
-If the absolute percentage change exceeds the threshold, we count that dimension as having a large change.
+# 11. Orders Feature Ablation
 
----
+The raw:
 
-## 7. `core_large_change_count`
+orders
 
-This feature tells us:
+feature was removed.
 
-> How many core behavioral dimensions changed by more than 100%?
+The model was retrained using the remaining behavioral and change features.
 
-Example:
+The most important feature became:
 
-```text
-Spending change       = +150%  → large change
-Quantity change       = +20%   → not large
-Unique products       = -120%  → large change
-Average value         = +10%   → not large
-```
+orders_change_pct
 
-Therefore:
+with importance:
 
-```text
-core_large_change_count = 2
-```
+0.427218
 
-This information is then used to define the behavioral shift target.
+Other important features included:
 
----
+active_days:
+0.139432
 
-## 8. Target: `behavior_shift`
+spend:
+0.103380
 
-The target tells the model what we want it to predict.
+avargeOrderValue_change_pct:
+0.043498
 
-```text
-behavior_shift = 0 → No significant behavioral shift
-behavior_shift = 1 → Significant behavioral shift
-```
+spend_change_pct:
+0.038496
 
-Final distribution:
 
-```text
-No Shift  = 83.53%
-Shift     = 16.47%
-```
+# 12. Model Comparison After Removing Orders
 
-So the target is imbalanced.
+The model without the raw orders feature achieved:
 
-This is important because accuracy alone will not be enough to evaluate our models.
+Accuracy:
+0.74
 
----
+ROC-AUC:
+0.811159
 
-## 9. Baseline vs Behavior-Aware
+PR-AUC:
+0.683632
 
-This is the main experiment in the project.
+Positive-class precision:
+0.61
 
-### Baseline
+Positive-class recall:
+0.72
 
-The Baseline uses only general historical information:
+Positive-class F1:
+0.66
 
-```text
-historical_active_months
-historical_transactions
-historical_spending
-```
+This showed that behavioral-change features retained substantial predictive value.
 
-The question is:
 
-> Can we detect behavior shifts using only the customer's historical activity?
+# 13. Time-Based Evaluation
 
----
+A time-based train/test strategy was used.
 
-### Behavior-Aware
+The data was sorted by:
 
-The Behavior-aware model adds recent behavioral information:
+CustomerID
+window_id
 
-```text
-Baseline features
-+
-previous_transaction_count
-previous_total_quantity
-previous_total_spending
-previous_average_transaction_value
-previous_unique_products
-months_since_previous
-```
+The split boundary was:
 
-The question is:
+window_id = 19
 
-> Does adding recent behavioral context improve behavior-shift detection?
+Training:
 
----
+window_id < 19
 
-## 10. Why Compare Them?
+Testing:
 
-We need the Baseline as a reference point.
+window_id >= 19
+
+Test rows:
+
+3,247
+
+Test window range:
+
+19–23
+
+This approach was selected instead of a random split to better simulate future prediction.
+
+
+# 14. Class Imbalance Handling
+
+The positive behavior-shift class represented approximately:
+
+35.26%
+
+of the dataset.
+
+XGBoost was configured with:
+
+scale_pos_weight = 1.8362842032651183
+
+This increased the model's focus on detecting the positive class.
+
+
+# 15. Hyperparameter Tuning
+
+RandomizedSearchCV was used for XGBoost tuning.
+
+The search explored:
+
+n_estimators:
+100, 200, 300, 500
+
+max_depth:
+3, 4, 5, 6, 8
+
+learning_rate:
+0.01, 0.05, 0.1, 0.2
+
+subsample:
+0.7, 0.8, 0.9, 1.0
+
+colsample_bytree:
+0.7, 0.8, 0.9, 1.0
+
+Configuration:
+
+n_iter = 30
+cv = 5
+scoring = average_precision
+random_state = 42
+
+
+# 16. Best Hyperparameters
+
+The selected configuration was:
+
+n_estimators:
+200
+
+max_depth:
+6
+
+learning_rate:
+0.01
+
+subsample:
+1.0
+
+colsample_bytree:
+0.9
+
+The final tuned model was selected based on Average Precision rather than accuracy.
+
+
+# 17. Final Model Evaluation
+
+Final model:
+
+XGBoost
+
+Features:
+Behavior-aware features without the raw orders feature.
+
+Final test results:
+
+Accuracy:
+0.74
+
+ROC-AUC:
+0.8111588464303074
+
+PR-AUC:
+0.6836320406452061
+
+Class 0:
+
+Precision:
+0.83
+
+Recall:
+0.74
+
+F1:
+0.79
+
+Class 1:
+
+Precision:
+0.61
+
+Recall:
+0.72
+
+F1:
+0.66
+
+Confusion matrix:
+
+[[1563, 539],
+ [316, 829]]
+
+
+# 18. Final Model Interpretation
+
+The final model demonstrated that behavioral change features provide meaningful predictive information.
+
+The most important feature was:
+
+orders_change_pct
+
+followed by:
+
+active_days
+spend
+avargeOrderValue_change_pct
+spend_change_pct
+
+This supports the project's core idea of detecting changes in customer behavior over time.
+
+
+# 19. Model Serialization
+
+The final model was serialized using Joblib.
+
+Final model path:
+
+models/xgboost/v1/model.joblib
+
+Model version:
+
+v1
+
+Versioning was introduced to make the deployed model reproducible and allow future model versions to coexist.
+
+
+# 20. FastAPI Development
+
+A FastAPI REST API was developed to expose the trained model.
+
+The API provides a prediction endpoint:
+
+POST /api/v1/predict
+
+The API validates the incoming request using a structured request schema.
+
+The endpoint receives the behavioral features required by the model.
+
+
+# 21. Final API Feature Set
+
+The final API/model uses 22 features:
+
+1. spend
+2. totalQuantity
+3. unique_products
+4. active_days
+5. line_items
+6. avargeOrderValue
+7. items_per_order
+8. window_days
+9. prev_orders
+10. prev_spend
+11. prev_totalQuantity
+12. prev_avargeOrderValue
+13. prev_unique_products
+14. prev_active_days
+15. prev_items_per_order
+16. orders_change_pct
+17. spend_change_pct
+18. totalQuantity_change_pct
+19. avargeOrderValue_change_pct
+20. unique_products_change_pct
+21. active_days_change_pct
+22. items_per_order_change_pct
+
+
+# 22. API Threshold
+
+The API uses:
+
+threshold = 0.30
+
+The model first generates a probability.
+
+The API then converts the probability into a binary prediction.
 
 If:
 
-```text
-Baseline performance = lower
-Behavior-aware performance = higher
-```
+probability >= 0.30
 
-then we have evidence that temporal behavioral information adds predictive value.
+the prediction is:
 
-This comparison is one of the main goals of the project.
+1
 
----
+Otherwise:
 
-## 11. Temporal Data Split
+0
 
-We cannot randomly split this dataset because the project is about behavior over time.
 
-Instead, we use chronological splitting:
+# 23. API Testing
 
-```text
-Train:
-2010-01 → 2011-05
+The API was tested locally using:
 
-Validation:
-2011-06 → 2011-08
+Uvicorn
 
-Test:
-2011-09 → 2011-12
-```
+The application successfully started at:
 
-This better represents a real-world scenario:
+http://127.0.0.1:8000
 
-> Train on the past → validate on a later period → test on an even later period.
+The prediction endpoint was tested through the FastAPI Swagger documentation.
 
----
+Endpoint:
 
-## 12. Feature Skewness
+http://127.0.0.1:8000/api/v1/predict
 
-Some features have highly right-skewed distributions.
 
-For example:
+# 24. Successful API Test
 
-```text
-historical_spending = 13.41 skewness
-previous_total_quantity = 30.10 skewness
-```
+A complete valid request returned:
 
-This happens because most customers have relatively small values, while a small number of customers have extremely large values.
+HTTP 200
 
-We identified features that may benefit from log transformation.
+Example response:
 
-However, transformations must be applied inside the modeling pipeline and fitted using training data only.
+{
+  "prediction": 1,
+  "probability": 0.3361409306526184,
+  "threshold": 0.3,
+  "model_version": "v1"
+}
 
----
+This confirmed successful communication between:
 
-## 13. Final Modeling Dataset
+Client
+→ FastAPI
+→ Versioned XGBoost model
+→ Prediction
+→ API response
 
-After temporal feature engineering:
 
-```text
-Rows = 19,651
-Columns = 32
-```
+# 25. API Validation
 
-Saved as:
+The API correctly rejected incomplete requests with:
 
-```text
-data/processed/behavior_change_dataset.csv
-```
+HTTP 422
 
-Not all 32 columns are model features.
+This confirmed that required model features are validated before inference.
 
-Some columns are used for:
+A complete request containing all 22 model features successfully generated a prediction.
 
-* temporal analysis
-* target construction
-* debugging
-* tracking
-* customer/month identification
 
-The actual model feature sets are much smaller.
+# 26. Final Project Structure
 
----
+The project was organized around:
 
-## 14. Current Understanding
+data/
+    raw/
+    processed/
 
-The whole feature-engineering pipeline can be summarized as:
+models/
+    xgboost/
+        v1/
+            model.joblib
 
-```text
-Transactions
-      ↓
-Customer-Month Aggregation
-      ↓
-Monthly Behavioral Features
-      ↓
-Previous Behavioral Features
-      ↓
-Behavior Changes
-      ↓
-Percentage Changes
-      ↓
-Threshold
-      ↓
-behavior_shift Target
-      ↓
-Baseline vs Behavior-Aware Features
-      ↓
-Temporal Train / Validation / Test
-      ↓
-Machine Learning
-```
+notebooks/
 
-### Current Status
+api/
+    main.py
+    test_api.py
 
-Feature engineering is complete.
+README.md
 
-Next:
+debugging_log.md
 
-**Train the Baseline model and establish the first performance benchmark.**
+project_log.md
+
+
+# 27. Final Project Status
+
+Data preparation:
+Completed
+
+Data cleaning:
+Completed
+
+Behavioral feature engineering:
+Completed
+
+Target labeling:
+Completed
+
+Leakage control:
+Completed
+
+Time-based evaluation:
+Completed
+
+XGBoost modeling:
+Completed
+
+Feature ablation:
+Completed
+
+Hyperparameter tuning:
+Completed
+
+Final model selection:
+Completed
+
+Model serialization:
+Completed
+
+FastAPI implementation:
+Completed
+
+API validation:
+Completed
+
+Documentation:
+In progress / finalized through README, Debugging Log, and Project Log
+
+
+# Final Technical Summary
+
+Dataset:
+Online Retail II
+
+Final modeling dataset:
+15,582 rows
+
+Final model:
+XGBoost
+
+Final model version:
+v1
+
+Final model artifact:
+models/xgboost/v1/model.joblib
+
+Final features:
+22
+
+Final test rows:
+3,247
+
+Final accuracy:
+0.74
+
+Final ROC-AUC:
+0.8112
+
+Final PR-AUC:
+0.6836
+
+Positive-class recall:
+0.72
+
+Positive-class F1:
+0.66
+
+API:
+FastAPI
+
+Endpoint:
+POST /api/v1/predict
+
+Threshold:
+0.30
+
+Status:
+Model trained, versioned, serialized, and successfully integrated with a working FastAPI inference endpoint.
