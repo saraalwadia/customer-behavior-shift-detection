@@ -1,855 +1,794 @@
-# Debugging Log
+# Debugging Log — Customer Behavior Shift Detection
 
-## AI-Based Customer Behavior Shift Detection
+## 1. Project Overview
 
-This document records the main technical issues, methodological decisions, debugging findings, and model-development decisions made during the development of the **AI-Based Customer Behavior Shift Detection** project.
+This debugging log documents the important technical issues, validation steps, design corrections, and model/API consistency checks performed during the development of the Customer Behavior Shift Detection project.
 
-The purpose of this log is to keep the project development process **traceable, reproducible, and methodologically defensible**.
+The project aims to detect whether a customer's behavior has shifted significantly over time using transaction-based behavioral features.
 
----
+The project compares customer behavior across time windows and uses machine learning to predict the `BehaviorShift` target.
 
-# 1. Dataset Preparation
+The final pipeline includes:
 
-## Raw Dataset Handling
+1. Raw transaction data profiling
+2. Data cleaning
+3. Customer-level temporal aggregation
+4. Behavioral feature engineering
+5. Behavior-shift labeling
+6. Time-based train/test splitting
+7. XGBoost modeling
+8. Hyperparameter tuning
+9. Feature importance analysis
+10. Removal of potentially dominant/non-behavioral features
+11. Final model selection
+12. Model serialization using `joblib`
+13. FastAPI deployment
+14. API endpoint validation
+15. Independent API test validation
 
-The project uses the **Online Retail II** dataset.
 
-The raw dataset was excluded from version control because of its size and because raw data is not required in the GitHub repository for reproducibility.
+## 2. Dataset Profiling and Initial Data Issues
 
-Generated and processed datasets are stored separately.
+The selected dataset was the Online Retail II dataset.
 
-### Decision
+The combined raw dataset contained:
 
-The raw dataset was added to `.gitignore`.
+- 1,067,371 transaction rows
+- 8 original features
+- Date range from December 2009 to December 2011
+- 5,942 unique customers with Customer IDs
+- 824,364 transactions with Customer IDs
+- 243,007 transactions without Customer IDs
+- Customer ID coverage: approximately 77.23%
 
-### Lesson
+Initial data-quality problems included:
 
-Raw datasets and generated artifacts should be separated from source code and should not be unnecessarily committed to version control.
+- Missing Customer IDs
+- Negative quantities
+- Zero prices
+- Negative prices
+- Missing descriptions
+- Duplicate transaction rows
+- Cancellation transactions
+- Non-commercial transactions
 
----
+These issues had to be addressed before creating customer-level behavioral features.
 
-# 2. Dataset Inspection and Cleaning
 
-The original dataset contained multiple data-quality issues, including:
+## 3. Cancellation and Transaction Cleaning
 
-* Missing Customer IDs
-* Missing descriptions
-* Duplicate records
-* Negative quantities
-* Negative prices
-* Zero prices
-* Cancellation transactions
-* Non-commercial transactions
+Negative quantities were investigated instead of being removed blindly.
 
-The dataset was inspected before feature engineering to identify and understand these issues.
+The analysis showed that many negative quantities were associated with cancellation invoices, especially invoices beginning with `C`.
 
-### Key observations
+The cleaning process therefore distinguished cancellation transactions from normal purchases.
 
-* Original combined dataset: **1,067,371 rows**
-* Transactions with Customer ID: **824,364**
-* Transactions without Customer ID: **243,007**
-* Unique customers: **5,942**
-* Negative quantities were identified and investigated as part of cancellation handling.
+Important results included:
 
-### Decision
+- 22,950 rows initially had negative quantities.
+- 19,493 negative-quantity rows were associated with cancellation invoices.
+- Cancellation invoices were removed from the modeling data.
+- Zero-price rows were also removed.
+- Non-commercial transactions were removed.
+- Transactions without Customer IDs were excluded because customer-level behavior could not be modeled reliably without customer identification.
 
-Customer-level modeling was restricted to transactions with valid `Customer ID` values because customer behavioral history cannot be reliably constructed without a customer identifier.
+After the cleaning process, the customer-level modeling data contained:
 
-Cancellation and invalid/non-commercial transactions were removed according to the project's cleaning rules.
+- 802,904 rows
+- No missing Customer IDs
+- No negative quantities
+- No zero quantities
+- No negative prices
+- No zero prices
 
-### Lesson
+Duplicate records were also investigated during profiling. Different duplicate counts appeared during intermediate stages because duplicate rows and duplicate groups were measured separately. The final cleaning/profiling stage used the reconciled dataset rather than relying on the early intermediate counts.
 
-Data cleaning must be completed before constructing temporal customer features because invalid transactions can directly affect behavioral measurements.
 
----
+## 4. Customer-Level Temporal Dataset
 
-# 3. Customer-Month Temporal Dataset
+The project was changed from a transaction-level prediction problem into a temporal customer behavior problem.
 
-## Issue
+Customer behavior was aggregated into fixed time windows.
 
-The original dataset was transaction-level, while the project objective requires detecting changes in customer behavior over time.
+The modeling dataset was saved as:
 
-### Fix
+`online_retail_II_labeled_30.csv`
 
-Transactions were aggregated at the:
+The final labeled dataset contained:
+
+- 15,582 rows
+- 34 columns
+
+Each row represents a customer's behavior during a specific temporal window.
+
+The dataset includes:
+
+- Customer identifiers
+- Window identifiers
+- Window dates
+- Current behavioral features
+- Previous-window behavioral features
+- Percentage-change features
+- Future behavioral information used for labeling
+- `BehaviorShift` target
+
+
+## 5. Leakage Prevention
+
+A major correctness issue in the modeling pipeline was preventing future information from entering the predictors.
+
+The following columns were identified as leakage variables and removed from the model features:
+
+- `next_orders`
+- `next_spend`
+- `future_orders_change`
+- `future_spend_change`
+
+These variables describe future customer behavior and therefore cannot be available when making a real prediction.
+
+The target column was also excluded from the predictors:
+
+- `BehaviorShift`
+
+Identifier/date columns were excluded from the machine-learning feature matrix:
+
+- `CustomerID`
+- `window_id`
+- `window_start`
+- `window_end`
+- `first_purchase`
+- `last_purchase`
+
+This ensured that the model learned from behavioral information rather than customer identity or future information.
+
+
+## 6. Final Feature Set
+
+The main XGBoost model initially used 23 features.
+
+The feature set included current behavior, previous behavior, and behavioral-change variables.
+
+The original feature list was:
+
+- `orders`
+- `spend`
+- `totalQuantity`
+- `unique_products`
+- `active_days`
+- `line_items`
+- `avargeOrderValue`
+- `items_per_order`
+- `window_days`
+- `prev_orders`
+- `prev_spend`
+- `prev_totalQuantity`
+- `prev_avargeOrderValue`
+- `prev_unique_products`
+- `prev_active_days`
+- `prev_items_per_order`
+- `orders_change_pct`
+- `spend_change_pct`
+- `totalQuantity_change_pct`
+- `avargeOrderValue_change_pct`
+- `unique_products_change_pct`
+- `active_days_change_pct`
+- `items_per_order_change_pct`
+
+The target distribution was:
+
+- Class 0: 64.74%
+- Class 1: 35.26%
+
+Because the positive class was smaller, class weighting was used through XGBoost's `scale_pos_weight`.
+
+
+## 7. Time-Based Train/Test Split
+
+A random train/test split was avoided because this is a temporal behavior-prediction problem.
+
+The data was ordered by customer and temporal window.
+
+The split was based on `window_id`.
+
+The 80th percentile of the window identifier was used as the split boundary:
+
+`split_window = 19.0`
+
+The final test set contained:
+
+- 3,247 rows
+- Window range: 19 to 23
+
+The time-based split was important because a random split could allow information from later behavior periods to influence model training and produce overly optimistic results.
+
+
+## 8. Initial XGBoost Model
+
+An initial XGBoost classifier was trained using:
+
+- `n_estimators = 300`
+- `max_depth = 6`
+- `learning_rate = 0.1`
+- `scale_pos_weight = 1.8363`
+- `eval_metric = logloss`
+- `random_state = 42`
+
+Initial test performance:
+
+- Accuracy: 0.73
+- ROC-AUC: 0.7918
+- PR-AUC: 0.6606
+
+Class 0:
+
+- Precision: 0.82
+- Recall: 0.75
+- F1: 0.78
+
+Class 1:
+
+- Precision: 0.60
+- Recall: 0.70
+- F1: 0.65
+
+Confusion matrix:
 
 ```text
-Customer × Month
-```
+[[1568  534]
+ [ 338  807]]
 
-level.
 
-The following monthly behavioral features were created:
+9. MODEL FEATURE ALIGNMENT ISSUE
 
-* `transaction_count`
-* `total_quantity`
-* `total_spending`
-* `average_transaction_value`
-* `unique_products`
+Problem:
+The saved XGBoost model contained 22 features, while the API request schema initially contained only 21 features.
 
-The final temporal dataset used for modeling contained:
+The saved model expected:
 
-```text
-19,651 rows
-32 columns
-```
+1. spend
+2. totalQuantity
+3. unique_products
+4. active_days
+5. line_items
+6. avargeOrderValue
+7. items_per_order
+8. window_days
+9. prev_orders
+10. prev_spend
+11. prev_totalQuantity
+12. prev_avargeOrderValue
+13. prev_unique_products
+14. prev_active_days
+15. prev_items_per_order
+16. orders_change_pct
+17. spend_change_pct
+18. totalQuantity_change_pct
+19. avargeOrderValue_change_pct
+20. unique_products_change_pct
+21. active_days_change_pct
+22. items_per_order_change_pct
 
-### Lesson
+However, the API test initially provided only 21 features and was missing:
 
-Customer behavior is better represented through repeated customer-period observations than isolated transactions.
+spend
 
----
+Resolution:
+The API request schema and test payload were updated to include the complete feature set expected by the saved model.
 
-# 4. Previous-Period Behavioral Features
+The final API therefore uses the same 22 features used during model training.
 
-Previous observed customer behavior was calculated using chronological customer histories.
 
-The following features were created:
+10. MODEL/API FEATURE ORDER VERIFICATION
 
-```text
-previous_transaction_count
-previous_total_quantity
-previous_total_spending
-previous_average_transaction_value
-previous_unique_products
-months_since_previous
-```
+Problem:
+Having the same feature names is not sufficient for a production ML API. The order of the features must also match the order used during model training.
 
-These features provide information about the customer's recent behavioral history without directly using future observations.
+Resolution:
+The API test was updated to inspect the feature names stored in the trained XGBoost model using the model's feature metadata.
 
-### Decision
+The model feature list was compared against the API feature list.
 
-Previous-period features were included in the behavior-aware model to test whether temporal information improves behavior-shift detection.
+This verification confirmed that the final API must construct the input DataFrame using the exact model feature order.
 
----
+Final model feature order:
 
-# 5. Behavioral Change Features and Target Construction
+spend
+totalQuantity
+unique_products
+active_days
+line_items
+avargeOrderValue
+items_per_order
+window_days
+prev_orders
+prev_spend
+prev_totalQuantity
+prev_avargeOrderValue
+prev_unique_products
+prev_active_days
+prev_items_per_order
+orders_change_pct
+spend_change_pct
+totalQuantity_change_pct
+avargeOrderValue_change_pct
+unique_products_change_pct
+active_days_change_pct
+items_per_order_change_pct
 
-## Issue
+Resolution implemented:
+The API input is aligned with the saved model rather than relying on arbitrary JSON field ordering.
 
-The original dataset did not contain a target variable indicating whether a customer experienced a behavior shift.
 
-### Fix
+11. MODEL VERSIONING AND API MODEL PATH
 
-Behavioral change features were calculated by comparing current customer behavior with previous observed behavior.
+Problem:
+The project initially referenced multiple model paths, including:
 
-Absolute changes included:
+../models/xgboost_behavior_shift_30.pkl
 
-```text
-change_transaction_count
-change_total_quantity
-change_total_spending
-change_average_transaction_value
-change_unique_products
-```
+and later:
 
-Percentage changes included:
+models/xgboost/v1/model.joblib
 
-```text
-pct_change_transaction_count
-pct_change_total_quantity
-pct_change_total_spending
-pct_change_average_transaction_value
-pct_change_unique_products
-```
+This created ambiguity regarding which model was actually being served by the API.
 
-A core behavioral-change criterion was then used to construct the target:
+Resolution:
+The project was standardized around the versioned model:
 
-```text
-behavior_shift
-```
+models/xgboost/v1/model.joblib
 
-with:
+The API and API testing workflow were updated to load this versioned model.
 
-```text
-0 = No Behavior Shift
-1 = Behavior Shift
-```
+This provides a clearer model lifecycle and makes it possible to introduce future model versions without overwriting the existing production model.
 
-### Important leakage consideration
 
-Features directly used to construct the target were not used as model inputs.
+12. JOBLIB MODEL SERIALIZATION
 
-The following groups were excluded from model features:
+Problem:
+The project originally used a .pkl filename in parts of the notebook/testing workflow, while the API used a Joblib model file.
 
-```text
-change_*
-pct_change_*
-behavior_shift_candidate
-core_large_change_count
-core_behavior_shift_candidate
-```
+Resolution:
+The project standardized model serialization using Joblib.
 
-### Lesson
+Final model artifact:
 
-When a supervised-learning target is engineered from behavioral rules, the target-defining variables must not be passed directly to the model.
+models/xgboost/v1/model.joblib
 
----
+The API loads the same versioned Joblib model used for inference testing.
 
-# 6. Temporal Train / Validation / Test Split
+This avoids maintaining multiple competing copies of the trained model.
 
-## Issue
 
-Random splitting would allow observations from different time periods to appear across training and evaluation sets, which is inappropriate for this temporal prediction problem.
+13. REMOVING THE DEPENDENCY ON A SEPARATE FEATURE-NAMES FILE
 
-### Fix
+Problem:
+The API test initially attempted to load a separate file containing feature names:
 
-A chronological split was used.
+xgboost_behavior_shift_30_features.pkl
 
-| Dataset    | Period            |   Rows |
-| ---------- | ----------------- | -----: |
-| Train      | 2010-01 → 2011-05 | 12,832 |
-| Validation | 2011-06 → 2011-08 |  2,553 |
-| Test       | 2011-09 → 2011-12 |  4,266 |
+That file was not part of the final versioned model structure.
 
-### Decision
+Resolution:
+The feature names are obtained directly from the saved XGBoost model metadata instead of depending on an additional feature-name artifact.
 
-The Test set was kept separate from model selection and threshold selection.
+This reduces the number of required model files and prevents inconsistencies between the model and an externally stored feature list.
 
-### Lesson
 
-Temporal problems require time-aware evaluation to reduce the risk of temporal leakage.
+14. FINAL MODEL FEATURE COUNT
 
----
+Final verification showed:
 
-# 7. Target Imbalance
+Model feature count: 22
 
-The target is moderately imbalanced.
+The saved model expects exactly 22 input features.
 
-### Training distribution
+The API was therefore updated to provide exactly the same 22 features.
 
-```text
-No Shift:         10,745 (83.74%)
-Behavior Shift:    2,087 (16.26%)
-```
+This check became an important part of the API validation process because an incorrect number of features can cause inference failures or, worse, inconsistent predictions.
 
-### Validation distribution
 
-```text
-No Shift:          2,198 (86.09%)
-Behavior Shift:      355 (13.91%)
-```
+15. LEAKAGE PREVENTION
 
-### Test distribution
+Problem:
+The labeled dataset contained variables describing future customer behavior:
 
-```text
-No Shift:          3,471 (81.36%)
-Behavior Shift:      795 (18.64%)
-```
+next_orders
+next_spend
+future_orders_change
+future_spend_change
 
-### Decision
+These variables were used to generate the target and therefore could leak future information into the model.
 
-Accuracy was not used as the primary model-selection metric.
+Resolution:
+All future-looking variables were explicitly removed before training.
 
-The main evaluation metrics were:
+Removed leakage features:
 
-* Precision
-* Recall
-* F1-score
-* ROC-AUC
-* PR-AUC
+next_orders
+next_spend
+future_orders_change
+future_spend_change
 
-F1-score was used for classification-threshold selection.
+The target variable was also excluded from the feature matrix.
 
----
+This ensures that the model predicts behavior shift using information available at the prediction window rather than information from the future.
 
-# 8. Feature Sets
 
-Two feature sets were defined to evaluate whether behavioral information improves detection.
+16. IDENTIFIER REMOVAL
 
-## Baseline Features
+Problem:
+Customer and temporal identifiers were present in the dataset but should not be used as predictive features.
 
-```python
-[
-    "historical_active_months",
-    "historical_transactions",
-    "historical_spending"
-]
-```
+Resolution:
+The following columns were excluded from the modeling feature matrix:
 
-The baseline represents static/historical customer information.
+CustomerID
+window_id
+window_start
+window_end
+first_purchase
+last_purchase
 
-## Behavior-Aware Features
+The model therefore focuses on behavioral and historical customer information rather than identifiers or raw date fields.
 
-```python
-[
-    "historical_active_months",
-    "historical_transactions",
-    "historical_spending",
-    "previous_transaction_count",
-    "previous_total_quantity",
-    "previous_total_spending",
-    "previous_average_transaction_value",
-    "previous_unique_products",
-    "months_since_previous"
-]
-```
 
-The behavior-aware model extends the baseline with recent behavioral information.
+17. TARGET DISTRIBUTION
 
----
+The final labeled dataset contained:
 
-# 9. Baseline Logistic Regression
+15,582 rows
 
-The baseline Logistic Regression model was trained using the baseline feature set.
+Target:
 
-At the default classification threshold of `0.50`, the model produced:
+BehaviorShift = 0: 64.74%
+BehaviorShift = 1: 35.26%
 
-```text
-Precision: 0.0000
-Recall:    0.0000
-F1:        0.0000
-ROC-AUC:   0.5763
-PR-AUC:    0.1804
-```
+The target was moderately imbalanced.
 
-## Issue
+Resolution:
+The XGBoost model used class weighting through:
 
-The model probabilities were generally below `0.50`, causing almost all validation observations to be classified as the negative class.
+scale_pos_weight
 
-### Fix
+Calculated from the training data as:
 
-Classification thresholds were evaluated on the Validation set.
+scale_pos_weight = number of class 0 samples / number of class 1 samples
 
-The best threshold by F1-score was:
+Final value:
 
-```text
-0.20
-```
+1.8362842032651183
 
-### Validation performance
+This gives additional importance to the minority behavior-shift class.
 
-```text
-Precision: 0.1887
-Recall:    0.4535
-F1:        0.2666
-ROC-AUC:   0.5763
-PR-AUC:    0.1804
-```
 
-### Lesson
+18. TIME-BASED TRAIN/TEST SPLIT
 
-The default threshold of `0.50` is not necessarily appropriate for an imbalanced classification problem.
+Problem:
+A random train/test split would not be appropriate for this project because the goal is to detect future behavior shifts.
 
----
+Random splitting could allow temporally later observations to influence training.
 
-# 10. Behavior-Aware Logistic Regression
+Resolution:
+A time-based split was used.
 
-The behavior-aware Logistic Regression model was trained using the nine behavior-aware features.
+The dataset was sorted by:
 
-The best validation threshold was:
+CustomerID
+window_id
 
-```text
-0.30
-```
+The 80th percentile of window_id was used as the split boundary.
 
-### Validation performance
+Final split boundary:
 
-```text
-Precision: 0.3935
-Recall:    0.5155
-F1:        0.4463
-ROC-AUC:   0.7794
-PR-AUC:    0.4347
-```
+split_window = 19.0
 
-### Conclusion
+Training observations:
 
-Adding recent behavioral information substantially improved the model compared with the static baseline.
+window_id < 19
 
----
+Testing observations:
 
-# 11. Random Forest
+window_id >= 19
 
-Random Forest was introduced as a nonlinear candidate model.
+Final test set:
 
-The model was evaluated using the same temporal split and validation-based threshold-selection procedure.
+3,247 rows
 
-The best validation threshold was:
+Test window range:
 
-```text
-0.45
-```
+19 to 23
 
-### Validation performance
+This provides a more realistic evaluation of how the model performs on later customer behavior.
 
-```text
-Precision: 0.3390
-Recall:    0.5606
-F1:        0.4225
-ROC-AUC:   0.7798
-PR-AUC:    0.4140
-```
 
-### Conclusion
+19. BASELINE XGBOOST MODEL
 
-Random Forest achieved higher recall than the behavior-aware Logistic Regression model, but its F1-score and PR-AUC were lower.
+The initial XGBoost model used:
 
-Therefore, it was not selected as the final model.
-
----
-
-# 12. Original XGBoost Model
-
-XGBoost was introduced as an additional nonlinear candidate model.
-
-The model was trained using the behavior-aware feature set.
-
-### Validation threshold
-
-The best threshold was:
-
-```text
-0.30
-```
-
-### Validation performance
-
-```text
-Precision: 0.3985
-Recall:    0.5803
-F1:        0.4725
-ROC-AUC:   0.8022
-PR-AUC:    0.4562
-```
-
-XGBoost achieved the strongest validation performance among the initial candidate models.
-
-### Feature importance
-
-The most important features were:
-
-| Feature                      | Importance |
-| ---------------------------- | ---------: |
-| `previous_total_spending`    |     0.2550 |
-| `previous_unique_products`   |     0.1815 |
-| `previous_total_quantity`    |     0.1399 |
-| `historical_spending`        |     0.0949 |
-| `previous_transaction_count` |     0.0835 |
-
-### Interpretation
-
-Recent customer behavior, particularly previous spending, product diversity, and quantity, contributed strongly to the model's predictions.
-
-These are model associations and should not be interpreted as causal effects.
-
----
-
-# 13. Model Comparison
-
-The initial validation comparison was:
-
-| Model                              | Threshold | Precision | Recall |         F1 |    ROC-AUC |     PR-AUC |
-| ---------------------------------- | --------: | --------: | -----: | ---------: | ---------: | ---------: |
-| Baseline Logistic Regression       |      0.20 |    0.1887 | 0.4535 |     0.2666 |     0.5763 |     0.1804 |
-| Behavior-Aware Logistic Regression |      0.30 |    0.3935 | 0.5155 |     0.4463 |     0.7794 |     0.4347 |
-| Random Forest                      |      0.45 |    0.3390 | 0.5606 |     0.4225 |     0.7798 |     0.4140 |
-| XGBoost                            |      0.30 |    0.3985 | 0.5803 | **0.4725** | **0.8022** | **0.4562** |
-
-### Decision
-
-XGBoost was selected as the leading candidate because it achieved the strongest validation F1-score, ROC-AUC, and PR-AUC among the initial models.
-
----
-
-# 14. XGBoost Hyperparameter Tuning
-
-## Objective
-
-Hyperparameter tuning was performed to determine whether the original XGBoost configuration could be improved.
-
-The search was performed using 3-fold cross-validation with F1-score as the optimization metric.
-
-### Search space
-
-```text
-n_estimators: [100, 200, 300]
-max_depth: [3, 5, 7]
-learning_rate: [0.03, 0.05, 0.1]
-subsample: [0.8, 1.0]
-colsample_bytree: [0.8, 1.0]
-```
-
-The search evaluated:
-
-```text
-20 candidate configurations
-60 total cross-validation fits
-```
-
-### Best configuration
-
-```text
 n_estimators = 300
-max_depth = 7
-learning_rate = 0.10
-subsample = 0.8
-colsample_bytree = 1.0
-```
+max_depth = 6
+learning_rate = 0.1
+scale_pos_weight = 1.8362842032651183
+eval_metric = logloss
+random_state = 42
+n_jobs = -1
 
-### Cross-validation result
+Initial test results:
 
-```text
-Best cross-validation F1: 0.3509
-```
+Class 0:
+Precision = 0.82
+Recall = 0.75
+F1 = 0.78
 
-The tuned XGBoost model was then evaluated on the Validation set using multiple classification thresholds.
+Class 1:
+Precision = 0.60
+Recall = 0.70
+F1 = 0.65
 
-### Tuned validation threshold results
+Accuracy = 0.73
 
-| Threshold |  Precision |     Recall |         F1 |
-| --------: | ---------: | ---------: | ---------: |
-|      0.10 |     0.2477 |     0.7549 |     0.3730 |
-|      0.15 |     0.2825 |     0.6732 |     0.3980 |
-|      0.20 |     0.3138 |     0.6169 |     0.4160 |
-|      0.25 |     0.3379 |     0.5606 |     0.4216 |
-|  **0.30** | **0.3690** | **0.5239** | **0.4331** |
-|      0.35 |     0.3939 |     0.4704 |     0.4288 |
-|      0.40 |     0.4107 |     0.4338 |     0.4219 |
-|      0.45 |     0.4299 |     0.3972 |     0.4129 |
-|      0.50 |     0.4460 |     0.3493 |     0.3918 |
+ROC-AUC = 0.791834351979192
 
-### Comparison with original XGBoost
+PR-AUC = 0.6606082369775408
 
-```text
-Original XGBoost:
-Validation F1 = 0.4725
-Threshold = 0.30
+Confusion matrix:
 
-Tuned XGBoost:
-Validation F1 = 0.4331
-Threshold = 0.30
-```
+[[1568, 534],
+ [338, 807]]
 
-### Decision
+The baseline established a reasonable starting point for the behavior-shift detection task.
 
-Hyperparameter tuning did not improve validation performance.
 
-Therefore:
+20. FEATURE IMPORTANCE INVESTIGATION
 
-```text
-Final model: Original XGBoost
-Final threshold: 0.30
-```
+Problem:
+The initial XGBoost model showed that the feature "orders" dominated the feature importance results.
 
-The tuned configuration was not adopted.
+Top feature:
 
-### Lesson
+orders = 0.659998
 
-Hyperparameter tuning is not guaranteed to improve model performance. A tuned model should only replace the original model when it demonstrates better performance on the validation data under the same evaluation procedure.
+This raised a modeling concern because the project aims to investigate whether behavioral change information contributes meaningfully to detecting customer behavior shifts.
 
----
+Resolution:
+A controlled experiment was performed by removing the orders feature and retraining/evaluating the model.
 
-# 15. Final XGBoost Evaluation
+This was treated as a feature-ablation experiment rather than simply accepting the initial model.
 
-After model selection, the untouched Test set was used for final evaluation.
 
-The selected model was:
+21. ORDERS FEATURE ABLATION
 
-```text
-Original XGBoost
-```
+The model was retrained without:
 
-with:
+orders
 
-```text
-Classification threshold = 0.30
-```
+The remaining features included behavioral change variables such as:
 
-### Test performance
+orders_change_pct
+spend_change_pct
+totalQuantity_change_pct
+avargeOrderValue_change_pct
+unique_products_change_pct
+active_days_change_pct
+items_per_order_change_pct
 
-```text
-Precision: 0.4681
-Recall:    0.4805
-F1:        0.4742
-ROC-AUC:   0.7746
-PR-AUC:    0.4790
-```
+The resulting model performance remained very close to the full-feature model.
 
-### Test confusion matrix
+Results without orders:
 
-```text
-[[3037  434]
- [ 413  382]]
-```
+Accuracy = 0.74
 
-This corresponds to:
+ROC-AUC = 0.8111588464303074
 
-```text
-True Negatives: 3037
-False Positives: 434
-False Negatives: 413
-True Positives: 382
-```
+PR-AUC = 0.6836320406452061
 
-### Interpretation
+Class 1:
 
-The final model detects a meaningful portion of behavior-shift cases while maintaining substantially better precision than the baseline model.
+Precision = 0.61
+Recall = 0.72
+F1 = 0.66
 
----
+This demonstrated that the model did not depend exclusively on the raw orders feature and that behavioral-change features retained substantial predictive information.
 
-# 16. Final Model vs Baseline
 
-| Model                        |  Precision |     Recall |         F1 |    ROC-AUC |     PR-AUC |
-| ---------------------------- | ---------: | ---------: | ---------: | ---------: | ---------: |
-| Baseline Logistic Regression |     0.1887 |     0.4535 |     0.2666 |     0.5763 |     0.1804 |
-| Final XGBoost                | **0.4681** | **0.4805** | **0.4742** | **0.7746** | **0.4790** |
+22. FEATURE IMPORTANCE AFTER REMOVING ORDERS
 
-### Improvement
+After removing orders, the most important features became:
 
-Compared with the baseline, the final XGBoost model achieved:
+orders_change_pct = 0.427218
+active_days = 0.139432
+spend = 0.103380
+avargeOrderValue_change_pct = 0.043498
+spend_change_pct = 0.038496
+avargeOrderValue = 0.029110
+line_items = 0.026191
+prev_active_days = 0.025782
+prev_orders = 0.020099
 
-* substantially higher Precision
-* higher F1-score
-* substantially higher ROC-AUC
-* substantially higher PR-AUC
+The strongest feature became:
 
-This supports the project's main hypothesis that incorporating behavioral information can improve customer behavior-shift detection.
+orders_change_pct
 
----
+This is particularly relevant to the project's objective because it represents behavioral change rather than simply the customer's current number of orders.
 
-# 17. Test Set Protection
 
-The Test set was reserved for final evaluation.
+23. HYPERPARAMETER TUNING
 
-It was not used to:
+RandomizedSearchCV was used to tune the XGBoost model.
 
-* select the model
-* select the classification threshold
-* tune hyperparameters
-* compare tuning configurations
+Search space:
 
-The classification threshold was selected using the Validation set and then applied unchanged to the Test set.
+n_estimators:
+100, 200, 300, 500
 
-### Lesson
+max_depth:
+3, 4, 5, 6, 8
 
-Keeping the Test set untouched until final evaluation provides a more reliable estimate of model generalization.
+learning_rate:
+0.01, 0.05, 0.1, 0.2
 
----
+subsample:
+0.7, 0.8, 0.9, 1.0
 
-# 18. Current Project Status
+colsample_bytree:
+0.7, 0.8, 0.9, 1.0
 
-The core machine-learning pipeline and model-serving components have been completed.
+Search configuration:
 
-### Completed
+n_iter = 30
+cv = 5
+scoring = average_precision
+random_state = 42
 
-* Dataset inspection and cleaning
-* Customer-month temporal aggregation
-* Historical and previous-period behavioral features
-* Behavior-shift target construction
-* Leakage analysis and feature exclusion
-* Chronological train/validation/test split
-* Baseline Logistic Regression
-* Behavior-aware Logistic Regression
-* Random Forest
-* XGBoost
-* Classification-threshold evaluation
-* Model comparison
-* XGBoost hyperparameter tuning
-* Final model selection
-* Final Test evaluation
-* Final model versioning
-* FastAPI model-serving API
-* API request/response schemas
-* Automated API tests
-* Dependency and repository configuration
+The optimization metric was Average Precision / PR-AUC because the target is imbalanced and detecting the positive behavior-shift class is more important than relying only on accuracy.
 
-### Final Model
 
-```text
-Model: XGBoost
-Threshold: 0.30
-Version: v1
-```
+24. BEST XGBOOST PARAMETERS
 
-### Final Test Performance
+The first tuned model produced:
 
-```text
-Precision: 0.4681
-Recall:    0.4805
-F1-score:  0.4742
-ROC-AUC:   0.7746
-PR-AUC:    0.4790
-```
+n_estimators = 200
+max_depth = 6
+learning_rate = 0.01
+subsample = 1.0
+colsample_bytree = 0.9
 
-The final model was selected based on validation performance and evaluated once on the untouched Test set.
+Best cross-validation Average Precision:
 
----
+0.7081293994778317
 
-# 19. API Validation
+The tuned model improved the test performance compared with the initial baseline.
 
-The final XGBoost model was exposed through a versioned FastAPI REST API.
 
-### Implemented Endpoints
+25. FINAL MODEL AFTER TUNING
 
-```text
-GET  /health
-GET  /metadata
-GET  /versions
-POST /predict
-```
+The final model was retrained without the raw orders feature and tuned using RandomizedSearchCV.
 
-The `/predict` endpoint accepts the nine behavior-aware features and returns:
+Best parameters:
 
-```text
+n_estimators = 200
+max_depth = 6
+learning_rate = 0.01
+subsample = 1.0
+colsample_bytree = 0.9
+
+Final cross-validation Average Precision:
+
+0.7027214623950483
+
+Final test results:
+
+Accuracy = 0.74
+
+ROC-AUC = 0.8111588464303074
+
+PR-AUC = 0.6836320406452061
+
+Class 0:
+Precision = 0.83
+Recall = 0.74
+F1 = 0.79
+
+Class 1:
+Precision = 0.61
+Recall = 0.72
+F1 = 0.66
+
+Confusion matrix:
+
+[[1563, 539],
+ [316, 829]]
+
+The final model was selected as the production candidate because it maintains strong discrimination while relying on behavior-aware features rather than the raw orders feature.
+
+
+26. API THRESHOLD
+
+Problem:
+The default classification threshold of 0.50 was not necessarily aligned with the project's objective of detecting behavior shifts.
+
+Resolution:
+The API was configured to use a threshold of:
+
+0.30
+
+The model still returns the raw probability, while the API converts the probability into a binary prediction using:
+
+prediction = 1 if probability >= 0.30
+prediction = 0 otherwise
+
+This makes the threshold explicit and configurable in the API response.
+
+The API response contains:
+
 prediction
 probability
 threshold
 model_version
-```
 
-### API Verification
 
-A real Test-set observation was used to validate the API prediction against the notebook prediction.
+27. FINAL API VALIDATION
 
-The results matched:
+The FastAPI application was successfully started using Uvicorn.
 
-```text
-Notebook probability: 0.14841708540916443
-API probability:      0.14841708540916443
+The API was available locally through:
 
-Notebook prediction:  0
-API prediction:       0
-```
+http://127.0.0.1:8000
 
-This confirmed that the deployed model produces the same prediction as the saved model used during evaluation.
+The prediction endpoint was:
 
-### Input Validation
+POST /api/v1/predict
 
-The API was also tested against invalid requests, including:
+The API correctly rejected incomplete requests with HTTP 422 when required features were missing.
 
-* Missing required features
-* Invalid data types
+After supplying the complete feature set, the endpoint returned HTTP 200.
 
-FastAPI correctly returned HTTP `422` validation responses.
+Example successful response:
 
----
+{
+  "prediction": 1,
+  "probability": 0.3361409306526184,
+  "threshold": 0.3,
+  "model_version": "v1"
+}
 
-# 20. Automated API Testing
+This confirms that:
 
-Automated tests were added to verify the main API functionality.
+1. FastAPI starts successfully.
+2. The versioned XGBoost model can be loaded.
+3. The API validates incoming request data.
+4. The complete feature set is accepted.
+5. The model generates a probability.
+6. The configured threshold is applied.
+7. The API returns a binary behavior-shift prediction.
+8. The model version is exposed in the response.
 
-The test suite covers:
+The final API therefore provides a reproducible inference layer on top of the trained behavior-shift detection model.
 
-```text
-Health endpoint
-Metadata endpoint
-Versions endpoint
-Valid prediction
-Missing prediction feature
-Invalid prediction input type
-```
+Final production artifact:
 
-Test execution result:
+models/xgboost/v1/model.joblib
 
-```text
-6 passed
-```
+Final endpoint:
 
-This provides automated verification of the main API behavior and input-validation logic.
+POST /api/v1/predict
 
----
+Final threshold:
 
-# 21. Final Error Analysis
+0.30
 
-The final model should be further examined through its prediction errors.
+Final test PR-AUC:
 
-The analysis should focus on:
+0.6836320406452061
 
-* False Positives
-* False Negatives
-* True Positives
-* True Negatives
+Final test ROC-AUC:
 
-The purpose is to determine whether specific customer behavioral patterns are associated with incorrect predictions and whether the model has systematic weaknesses.
+0.8111588464303074
 
-Error analysis should be performed on the Test set without changing the selected model or threshold based on those results.
+Final positive-class recall:
 
----
+0.72
 
-# 22. Model Interpretation
+Final positive-class F1:
 
-Model interpretation will be used to understand which behavioral features contribute most strongly to the final XGBoost predictions.
-
-The interpretation should focus on the relationship between the model's predictions and features such as:
-
-```text
-previous_total_spending
-previous_unique_products
-previous_total_quantity
-historical_spending
-previous_transaction_count
-```
-
-Feature importance and SHAP-based analysis, if included, should be interpreted as model-level associations rather than causal relationships.
-
----
-
-# 23. Documentation
-
-The final project documentation should clearly describe:
-
-* Project objective
-* Dataset and preprocessing
-* Feature engineering
-* Target construction
-* Leakage prevention
-* Temporal evaluation strategy
-* Baseline and candidate models
-* Model comparison
-* Threshold selection
-* Hyperparameter tuning
-* Final Test results
-* API usage
-* Testing
-* Reproducibility instructions
-* Project limitations
-* Final conclusion
-
-The documentation should remain consistent with the final implementation and reported evaluation results.
-
----
-
-# 24. Reproducibility
-
-The project maintains reproducibility through:
-
-* Version-controlled source code
-* A documented feature-generation pipeline
-* Versioned model artifacts
-* Explicit classification threshold
-* Saved model metadata
-* API schemas
-* Automated API tests
-* Dependency specification
-* Git ignore rules for local and generated artifacts
-
-The raw dataset is intentionally excluded from version control.
-
----
-
-# 25. Final Project Conclusion
-
-The project investigated whether incorporating temporal customer behavior can improve the detection of significant customer behavior shifts compared with a static historical baseline.
-
-The final XGBoost model achieved:
-
-```text
-F1-score:  0.4742
-ROC-AUC:   0.7746
-PR-AUC:    0.4790
-```
-
-compared with the baseline Logistic Regression:
-
-```text
-F1-score:  0.2666
-ROC-AUC:   0.5763
-PR-AUC:    0.1804
-```
-
-The results support the project's main hypothesis: **behavior-aware features provide substantially more useful predictive information for customer behavior-shift detection than the static baseline alone.**
-
-The final model is versioned as `v1`, uses a classification threshold of `0.30`, and is exposed through a tested FastAPI REST API.
-
-The project should be considered complete after finalizing model interpretation, error analysis, and the remaining project documentation.
+0.66
